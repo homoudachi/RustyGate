@@ -1,13 +1,17 @@
-use crate::common::types::{Command, Event};
-pub mod network;
 pub mod bacnet;
-use crate::core::network::interface;
+pub mod mqtt;
+pub mod network;
+pub mod persistence;
+
+use crate::common::types::{Command, Event};
 use crate::core::bacnet::client::BacnetClient;
 use crate::core::bacnet::discovery;
+use crate::core::network::interface;
 use tokio::sync::{mpsc, broadcast};
 use anyhow::Result;
 use bacnet_rs::app::Apdu;
 use bacnet_rs::object::{PropertyIdentifier, ObjectIdentifier, ObjectType};
+use bacnet_rs::datalink::DataLink;
 use std::sync::{Arc, Mutex};
 
 pub struct Core {
@@ -36,7 +40,65 @@ impl Core {
             }
             tokio::select! {
                 Some(cmd) = self.cmd_rx.recv() => {
-                    self.handle_command(cmd).await?;
+                    log::info!("Core received command: {:?}", cmd);
+                    match cmd {
+                        Command::BindAndDiscover(name) => {
+                            self.bind_interface(&name).await?;
+                            self.start_discovery().await?;
+                        }
+                        Command::BindInterface(name) => {
+                            self.bind_interface(&name).await?;
+                        }
+                        Command::StartDiscovery => {
+                            self.start_discovery().await?;
+                        }
+                        Command::Ping { interface, target } => {
+                            if !interface.is_empty() {
+                                self.bind_interface(&interface).await?;
+                            }
+                            if let Some(client_mutex) = &self.bacnet_client {
+                                let client_arc = Arc::clone(client_mutex);
+                                let event_tx = self.event_tx.clone();
+                                tokio::spawn(async move {
+                                    let mut client = client_arc.lock().unwrap();
+                                    if let Ok(target_addr) = target.parse() {
+                                        let dest = bacnet_rs::datalink::DataLinkAddress::Ip(
+                                            std::net::SocketAddr::new(target_addr, 47808)
+                                        );
+                                        if let Err(e) = client.send_who_is(None, None, Some(dest)) {
+                                            log::error!("Ping failed: {}", e);
+                                        } else {
+                                            let _ = event_tx.send(Event::StatusMessage(format!("Sent targeted Who-Is to {}", target)));
+                                        }
+                                    }
+                                });
+                            }
+                        }
+                        Command::DiscoverObjects { interface, device_id, address } => {
+                            if !interface.is_empty() {
+                                self.bind_interface(&interface).await?;
+                            }
+                            if let Some(client_mutex) = &self.bacnet_client {
+                                let client_arc = Arc::clone(client_mutex);
+                                let event_tx = self.event_tx.clone();
+                                tokio::spawn(async move {
+                                    let mut client = client_arc.lock().unwrap();
+                                    if let Ok(target_addr) = address.parse::<std::net::SocketAddr>() {
+                                        let dest = bacnet_rs::datalink::DataLinkAddress::Ip(target_addr);
+                                        let obj_id = ObjectIdentifier::new(ObjectType::Device, device_id);
+                                        if let Err(e) = client.send_read_property(&dest, obj_id, PropertyIdentifier::ObjectList as u32) {
+                                            log::error!("ReadProperty failed: {}", e);
+                                        } else {
+                                            let _ = event_tx.send(Event::StatusMessage(format!("Requested object list from device {}", device_id)));
+                                        }
+                                    }
+                                });
+                            }
+                        }
+                        _ => {
+                            log::warn!("Command not yet implemented: {:?}", cmd);
+                        }
+                    }
                 }
                 _ = tokio::time::sleep(std::time::Duration::from_millis(500)) => {
                     // Check shutdown occasionally
@@ -47,58 +109,12 @@ impl Core {
         Ok(())
     }
 
-    async fn handle_command(&mut self, cmd: Command) -> Result<()> {
-        log::info!("Core received command: {:?}", cmd);
-        match cmd {
-            Command::BindAndDiscover(name) => {
-                self.bind_interface(&name).await?;
-                self.start_discovery().await?;
-            }
-            Command::BindInterface(name) => {
-                self.bind_interface(&name).await?;
-            }
-            Command::StartDiscovery => {
-                self.start_discovery().await?;
-            }
-            Command::Ping { interface, target } => {
-                self.bind_interface(&interface).await?;
-                if let Some(client_mutex) = &self.bacnet_client {
-                    let mut client = client_mutex.lock().unwrap();
-                    let target_addr: std::net::IpAddr = target.parse()?;
-                    let dest = bacnet_rs::datalink::DataLinkAddress::Ip(
-                        std::net::SocketAddr::new(target_addr, 47808)
-                    );
-                    client.send_who_is(None, None, Some(dest))?;
-                    self.event_tx.send(Event::StatusMessage(format!("Sent targeted Who-Is to {}", target)))?;
-                }
-            }
-            Command::DiscoverObjects { interface, device_id, address } => {
-                log::info!("Handling DiscoverObjects for device {} at {} via {}", device_id, address, interface);
-                self.bind_interface(&interface).await?;
-                if let Some(client_mutex) = &self.bacnet_client {
-                    let mut client = client_mutex.lock().unwrap();
-                    match address.parse::<std::net::SocketAddr>() {
-                        Ok(target_addr) => {
-                            let dest = bacnet_rs::datalink::DataLinkAddress::Ip(target_addr);
-                            let obj_id = ObjectIdentifier::new(ObjectType::Device, device_id);
-                            match client.send_read_property(&dest, obj_id, PropertyIdentifier::ObjectList as u32) {
-                                Ok(id) => log::info!("Sent ReadProperty(ObjectList) to {}, invoke_id={}", address, id),
-                                Err(e) => log::error!("Failed to send ReadProperty: {}", e),
-                            }
-                            self.event_tx.send(Event::StatusMessage(format!("Requested object list from device {}", device_id)))?;
-                        }
-                        Err(e) => log::error!("Failed to parse address {}: {}", address, e),
-                    }
-                }
-            }
-            _ => {
-                log::warn!("Command not yet implemented: {:?}", cmd);
-            }
-        }
-        Ok(())
-    }
-
     async fn bind_interface(&mut self, name: &str) -> Result<()> {
+        if self.bacnet_client.is_some() {
+            log::info!("Interface already bound, skipping re-bind for {}", name);
+            return Ok(());
+        }
+        
         self.event_tx.send(Event::StatusMessage(format!("Binding to {}...", name)))?;
         
         let iface = interface::list_interfaces()?
@@ -106,7 +122,9 @@ impl Core {
             .find(|i| i.name == name)
             .ok_or_else(|| anyhow::anyhow!("Interface not found"))?;
 
-        let addr = std::net::SocketAddr::new(iface.ip, 47808);
+        log::info!("Interface {} has IP {}", name, iface.ip);
+        
+        let addr = std::net::SocketAddr::new(std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED), 47808);
         let client = BacnetClient::new(addr)?;
         let client_arc = Arc::new(Mutex::new(client));
         self.bacnet_client = Some(Arc::clone(&client_arc));
@@ -124,15 +142,25 @@ impl Core {
                     log::info!("BACnet receiver thread shutting down.");
                     break;
                 }
-                let mut client_lock = client_arc.lock().unwrap();
-                match client_lock.receive_frame() {
-                    Ok(Some((data, src))) => {
+                
+                let receive_result = {
+                    let mut client_lock = client_arc.lock().unwrap();
+                    client_lock.datalink.receive_frame()
+                };
+                
+                match receive_result {
+                    Ok((data, src)) => {
+                        let src: bacnet_rs::datalink::DataLinkAddress = src;
+                        log::info!("RECEIVED PACKET: {} bytes from {:?}. Hex: {}", data.len(), src, hex::encode(&data));
                         error_count = 0;
                         if let Ok(apdu) = Apdu::decode(&data) {
                             match apdu {
                                 Apdu::UnconfirmedRequest { .. } => {
                                     if let Ok(Some(mut device)) = discovery::parse_i_am(&apdu) {
-                                        device.address = format!("{:?}", src);
+                                        device.address = match src {
+                                            bacnet_rs::datalink::DataLinkAddress::Ip(addr) => addr.to_string(),
+                                            _ => format!("{:?}", src),
+                                        };
                                         log::info!("Discovered device: {:?} from {:?}", device, src);
                                         let _ = event_tx.send(Event::DeviceDiscovered(device));
                                     }
@@ -158,14 +186,10 @@ impl Core {
                             }
                         }
                     }
-                    Ok(None) => {
-                        // Timeout/WouldBlock - no data
-                        std::thread::sleep(std::time::Duration::from_millis(100));
-                    }
                     Err(e) => {
+                        let e: bacnet_rs::datalink::DataLinkError = e;
                         let err_str = e.to_string();
-                        if err_str.contains("WouldBlock") || err_str.contains("Resource temporarily unavailable") {
-                            // Equivalent to a timeout, just sleep and continue
+                        if err_str.contains("WouldBlock") || err_str.contains("Resource temporarily unavailable") || err_str.contains("TimedOut") {
                             std::thread::sleep(std::time::Duration::from_millis(100));
                         } else {
                             error_count += 1;
@@ -187,9 +211,21 @@ impl Core {
 
     async fn start_discovery(&mut self) -> Result<()> {
         if let Some(client_mutex) = &self.bacnet_client {
-            let mut client = client_mutex.lock().unwrap();
-            client.send_who_is(None, None, None)?;
-            self.event_tx.send(Event::StatusMessage("Who-Is broadcast sent".to_string()))?;
+            let client_arc = Arc::clone(client_mutex);
+            let event_tx = self.event_tx.clone();
+            tokio::spawn(async move {
+                let mut client = client_arc.lock().unwrap();
+                // Send both standard broadcast and directed broadcast
+                let _ = client.send_who_is(None, None, None);
+                let local_broadcast = bacnet_rs::datalink::DataLinkAddress::Ip(
+                    "192.168.1.255:47808".parse().unwrap()
+                );
+                if let Err(e) = client.send_who_is(None, None, Some(local_broadcast)) {
+                    log::error!("Directed Who-Is failed: {}", e);
+                } else {
+                    let _ = event_tx.send(Event::StatusMessage("Who-Is broadcasts sent".to_string()));
+                }
+            });
         } else {
             self.event_tx.send(Event::StatusMessage("Error: No interface bound".to_string()))?;
         }

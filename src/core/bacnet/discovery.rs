@@ -1,10 +1,10 @@
 use bacnet_rs::{
     app::Apdu,
     service::{IAmRequest, UnconfirmedServiceChoice, ReadPropertyResponse},
-    object::{ObjectType, PropertyIdentifier, ObjectIdentifier},
-    encoding::{self, ApplicationTag},
+    object::{ObjectType, ObjectIdentifier},
+    encoding,
 };
-use crate::common::types::{BacnetDevice, BacnetObjectInfo};
+use crate::common::types::BacnetDevice;
 use anyhow::Result;
 
 /// Parses an I-Am response and returns a BacnetDevice if successful.
@@ -47,10 +47,4 @@ pub fn parse_object_list(data: &[u8]) -> Result<Vec<ObjectIdentifier>> {
         }
     }
     Ok(objects)
-}
-
-pub fn parse_character_string(data: &[u8]) -> Result<String> {
-    let (s, _) = encoding::decode_character_string(data)
-        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
-    Ok(s)
 }

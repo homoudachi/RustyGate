@@ -69,7 +69,7 @@ fn main() {
 
     // Standard Launch (Core + Web UI)
     let (cmd_tx, cmd_rx) = mpsc::channel::<Command>(100);
-    let (event_tx, _event_rx) = broadcast::channel(100);
+    let (event_tx, mut _event_rx) = broadcast::channel(100);
 
     let core_event_tx = event_tx.clone();
     let rt = tokio::runtime::Runtime::new().unwrap();
@@ -82,9 +82,17 @@ fn main() {
         });
 
         let mut core = Core::new(cmd_rx, core_event_tx);
-        if let Err(e) = core.run().await {
-            log::error!("Core engine error: {}", e);
-        }
+        
+        // Spawn core in background
+        tokio::spawn(async move {
+            if let Err(e) = core.run().await {
+                log::error!("Core engine error: {}", e);
+            }
+        });
+
+        log::info!("RustyGate is running. Press Ctrl+C to stop.");
+        let _ = tokio::signal::ctrl_c().await;
+        log::info!("Shutting down...");
     });
 }
 

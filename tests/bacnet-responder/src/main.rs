@@ -35,9 +35,10 @@ async fn main() -> anyhow::Result<()> {
     let device_id = args.get(1).and_then(|s| s.parse().ok()).unwrap_or(99999);
     let mqtt_host = args.get(2).cloned().unwrap_or_else(|| "localhost".to_string());
     let iface_name = args.get(3).cloned();
+    let gateway_ip = args.get(4).cloned();
 
-    log::info!("Starting BACnet Ghost Device (ID: {}, MQTT: {}, Interface: {:?})", 
-        device_id, mqtt_host, iface_name);
+    log::info!("Starting BACnet Ghost Device (ID: {}, MQTT: {}, Interface: {:?}, Gateway IP: {:?})", 
+        device_id, mqtt_host, iface_name, gateway_ip);
 
     // Initialize Database with Device object
     let device = Device::new(device_id, format!("Ghost Device {}", device_id));
@@ -146,26 +147,25 @@ async fn main() -> anyhow::Result<()> {
                                                 999,
                                             );
                                             
-                                            let mut apdu_data = vec![0x10, UnconfirmedServiceChoice::IAm as u8];
-                                            iam.encode(&mut apdu_data).map_err(|e| anyhow::anyhow!(e.to_string()))?;
-                                            
-                                            // Manual NPDU: control=0x00 (standard), no destination/source
-                                            let mut npdu = vec![0x01, 0x00];
-                                            let mut full_packet = npdu;
-                                            full_packet.extend_from_slice(&apdu_data);
-                                            
-                                            // Manual BVLC: 0x81, 0x0B (Broadcast), length
-                                            let mut bvlc = vec![0x81, 0x0B, 0x00, 0x00];
-                                            bvlc.extend_from_slice(&full_packet);
-                                            let len = bvlc.len() as u16;
-                                            bvlc[2] = (len >> 8) as u8;
-                                            bvlc[3] = (len & 0xFF) as u8;
+                                            let mut service_data = Vec::new();
+                                            iam.encode(&mut service_data).map_err(|e| anyhow::anyhow!(e.to_string()))?;
 
-                                            if let Err(e) = datalink.send_frame(&bvlc, &bacnet_rs::datalink::DataLinkAddress::Broadcast) {
-                                                log::error!("Failed to send I-Am: {}", e);
+                                            let apdu = Apdu::UnconfirmedRequest {
+                                                service_choice: UnconfirmedServiceChoice::IAm as u8,
+                                                service_data,
+                                            };
+                                            
+                                            let encoded = apdu.encode();
+                                            
+                                            // Send broadcast
+                                            if let Err(e) = datalink.send_frame(&encoded, &bacnet_rs::datalink::DataLinkAddress::Broadcast) {
+                                                log::error!("Failed to send I-Am broadcast: {}", e);
                                             } else {
-                                                log::info!("Sent manual I-Am broadcast ({} bytes)", bvlc.len());
+                                                log::info!("Sent I-Am broadcast ({} bytes)", encoded.len());
                                             }
+
+                                            // Also send directed back to requester for better reliability
+                                            let _ = datalink.send_frame(&encoded, &src_addr);
                                         }
                                     }
                                 }

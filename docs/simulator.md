@@ -35,5 +35,5 @@ Use the provided scripts from the project root:
 ## Protocol Implementation Details
 The simulator uses the `bacnet-rs` library but implements its own custom request/response handlers for confirmed services like `ReadProperty`, as the base library is primarily focused on client-side operations.
 
-### Unicast Responses
-To improve reliability in complex WiFi/Docker networks, the simulator responds to `Who-Is` requests with unicast `I-Am` packets sent directly to the requester's IP, bypassing potential broadcast blocking.
+### Broadcast Support
+The simulator fully supports standard BACnet/IP broadcasts. While it can be configured for unicast responses in restrictive environments, standard `I-Am` broadcasts have been verified to work over wireless networks.

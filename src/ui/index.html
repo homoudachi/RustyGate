@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RustyGate Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { background-color: #f8f9fa; }
+        .sidebar { height: 100vh; background: #212529; color: white; padding: 20px; }
+        .card { margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .status-badge { font-size: 0.8rem; }
+        #logs { height: 200px; overflow-y: auto; background: #000; color: #0f0; font-family: monospace; padding: 10px; font-size: 0.85rem; }
+    </style>
+</head>
+<body>
+    <div class="container-fluid">
+        <div class="row">
+            <div class="col-md-2 sidebar">
+                <h3>RustyGate</h3>
+                <hr>
+                <div class="mb-3">
+                    <label class="form-label">Interface</label>
+                    <select id="interfaceSelect" class="form-select form-select-sm mb-2"></select>
+                    <button id="bindBtn" class="btn btn-primary btn-sm w-100">Bind & Initialize</button>
+                </div>
+                <hr>
+                <button id="discoverBtn" class="btn btn-success btn-sm w-100 mb-2" disabled>Discover Devices</button>
+                <hr>
+                <div class="mb-3">
+                    <label class="form-label">Ping Device (Unicast)</label>
+                    <input type="text" id="pingIp" class="form-control form-control-sm mb-2" placeholder="192.168.1.x">
+                    <button id="pingBtn" class="btn btn-warning btn-sm w-100" disabled>Ping</button>
+                </div>
+                <div id="connectionStatus" class="mt-3">
+                    <span class="badge bg-danger">Not Connected</span>
+                </div>
+            </div>
+            <div class="col-md-10 p-4">
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="card">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <h5 class="mb-0">Discovered Devices</h5>
+                                <span id="deviceCount" class="badge bg-secondary">0</span>
+                            </div>
+                            <div class="card-body p-0">
+                                <table class="table table-hover mb-0">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th>ID</th>
+                                            <th>Address</th>
+                                            <th>Name</th>
+                                            <th>Action</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="deviceList">
+                                        <tr><td colspan="4" class="text-center text-muted">No devices found</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="card">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <h5 class="mb-0">Device Objects</h5>
+                                <span id="objectCount" class="badge bg-secondary">0</span>
+                            </div>
+                            <div class="card-body p-0">
+                                <table class="table table-hover mb-0">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th>Type</th>
+                                            <th>Instance</th>
+                                            <th>Name</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="objectList">
+                                        <tr><td colspan="3" class="text-center text-muted">Select a device to view objects</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-header">System Logs</div>
+                    <div class="card-body p-0">
+                        <div id="logs"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const logsEl = document.getElementById('logs');
+        const deviceListEl = document.getElementById('deviceList');
+        const objectListEl = document.getElementById('objectList');
+        const interfaceSelect = document.getElementById('interfaceSelect');
+        const bindBtn = document.getElementById('bindBtn');
+        const discoverBtn = document.getElementById('discoverBtn');
+        const pingBtn = document.getElementById('pingBtn');
+        const pingIp = document.getElementById('pingIp');
+        const connectionStatus = document.getElementById('connectionStatus');
+
+        function addLog(msg) {
+            const div = document.createElement('div');
+            div.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+            logsEl.appendChild(div);
+            logsEl.scrollTop = logsEl.scrollHeight;
+        }
+
+        async function fetchInterfaces() {
+            const res = await fetch('/api/interfaces');
+            const ifaces = await res.json();
+            interfaceSelect.innerHTML = ifaces.map(i => `<option value="${i}">${i}</option>`).join('');
+        }
+
+        bindBtn.onclick = async () => {
+            const iface = interfaceSelect.value;
+            addLog(`Binding to ${iface}...`);
+            await fetch('/api/bind', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({interface_name: iface})
+            });
+            discoverBtn.disabled = false;
+            pingBtn.disabled = false;
+            connectionStatus.innerHTML = '<span class="badge bg-success">Connected to ' + iface + '</span>';
+        };
+
+        discoverBtn.onclick = async () => {
+            addLog("Starting discovery scan...");
+            await fetch('/api/discover', {method: 'POST'});
+            // Rapid refresh for 10 seconds
+            let count = 0;
+            let interval = setInterval(async () => {
+                await loadDevices();
+                if (++count > 10) clearInterval(interval);
+            }, 1000);
+        };
+
+        pingBtn.onclick = async () => {
+            const ip = pingIp.value;
+            if (!ip) return;
+            addLog(`Pinging ${ip}...`);
+            await fetch('/api/ping', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({target_ip: ip})
+            });
+        };
+
+        async function loadDevices() {
+            const res = await fetch('/api/devices');
+            const devices = await res.json();
+            if (devices.length > 0) {
+                document.getElementById('deviceCount').textContent = devices.length;
+                deviceListEl.innerHTML = devices.map(d => `
+                    <tr>
+                        <td>${d.instance}</td>
+                        <td>${d.address}</td>
+                        <td>${d.name}</td>
+                        <td><button class="btn btn-outline-primary btn-xs" onclick="inspectDevice(${d.instance})">Inspect</button></td>
+                    </tr>
+                `).join('');
+            }
+        }
+
+        async function inspectDevice(id) {
+            addLog(`Requesting objects for device ${id}...`);
+            objectListEl.innerHTML = '<tr><td colspan="3" class="text-center">Loading...</td></tr>';
+            const res = await fetch(`/api/devices/${id}/objects`);
+            const objects = await res.json();
+            updateObjectList(id, objects);
+        }
+
+        function updateObjectList(deviceId, objects) {
+            if (objects.length > 0) {
+                document.getElementById('objectCount').textContent = objects.length;
+                objectListEl.innerHTML = objects.map(o => `
+                    <tr>
+                        <td><span class="badge bg-info text-dark">${o.object_type}</span></td>
+                        <td>${o.instance}</td>
+                        <td>${o.name}</td>
+                    </tr>
+                `).join('');
+            } else {
+                objectListEl.innerHTML = '<tr><td colspan="3" class="text-center text-muted">Discovery in progress...</td></tr>';
+            }
+        }
+
+        // Setup SSE for real-time events
+        const eventSource = new EventSource('/api/events');
+        eventSource.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            if (data.DeviceDiscovered) {
+                addLog(`New device found: ${data.DeviceDiscovered.instance}`);
+                loadDevices();
+            } else if (data.DeviceObjectsDiscovered) {
+                addLog(`Objects discovered for device ${data.DeviceObjectsDiscovered.device_id}`);
+                updateObjectList(data.DeviceObjectsDiscovered.device_id, data.DeviceObjectsDiscovered.objects);
+            } else if (data.StatusMessage) {
+                addLog(`Status: ${data.StatusMessage}`);
+            }
+        };
+
+        fetchInterfaces();
+        setInterval(loadDevices, 5000);
+    </script>
+</body>
+</html>

@@ -7,7 +7,7 @@ use anyhow::Result;
 use std::net::SocketAddr;
 
 pub struct BacnetClient {
-    datalink: BacnetIpDataLink,
+    pub datalink: BacnetIpDataLink,
     invoke_id: u8,
 }
 
@@ -38,9 +38,9 @@ impl BacnetClient {
 
         let encoded = apdu.encode();
         let dest = destination.unwrap_or(DataLinkAddress::Broadcast);
+        log::info!("Sending Who-Is from {:?} to {:?}", self.datalink.local_address(), dest);
         self.datalink.send_frame(&encoded, &dest)?;
         
-        log::info!("Sent Who-Is request to {:?}", dest);
         Ok(())
     }
 
@@ -67,13 +67,5 @@ impl BacnetClient {
         self.datalink.send_frame(&encoded, dest)?;
         
         Ok(invoke_id)
-    }
-
-    pub fn receive_frame(&mut self) -> Result<Option<(Vec<u8>, DataLinkAddress)>> {
-        match self.datalink.receive_frame() {
-            Ok((data, src)) => Ok(Some((data, src))),
-            Err(e) if e.to_string().contains("TimedOut") || e.to_string().contains("WouldBlock") => Ok(None),
-            Err(e) => Err(anyhow::anyhow!(e.to_string())),
-        }
     }
 }

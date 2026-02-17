@@ -37,7 +37,8 @@ fi
 
 # 2. Remote Sync & Build
 echo "[$(date +%T)] Syncing and building on remote..."
-ssh $SSH_OPTS "$REMOTE_TARGET" "cd $REMOTE_DIR && git pull origin main && cd tests/bacnet-responder && cargo build --quiet"
+rsync -avz --exclude 'target' --exclude '.git' ./ "$REMOTE_TARGET:$REMOTE_DIR/"
+ssh $SSH_OPTS "$REMOTE_TARGET" "cd $REMOTE_DIR && cd tests/bacnet-responder && cargo build --quiet"
 if [ $? -ne 0 ]; then
     echo "ERROR: Remote build failed."
     exit 1
