@@ -1,0 +1,9 @@
+/home/matt/Coding/projects/rust/bacnet-mqtt-gateway/target/debug/deps/dioxus_interpreter_js-47c54d63eb2878e1.d: /home/matt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/dioxus-interpreter-js-0.4.3/src/lib.rs /home/matt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/dioxus-interpreter-js-0.4.3/src/sledgehammer_bindings.rs /home/matt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/dioxus-interpreter-js-0.4.3/src/../README.md /home/matt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/dioxus-interpreter-js-0.4.3/src/./interpreter.js /home/matt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/dioxus-interpreter-js-0.4.3/src/./common.js
+
+/home/matt/Coding/projects/rust/bacnet-mqtt-gateway/target/debug/deps/libdioxus_interpreter_js-47c54d63eb2878e1.rmeta: /home/matt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/dioxus-interpreter-js-0.4.3/src/lib.rs /home/matt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/dioxus-interpreter-js-0.4.3/src/sledgehammer_bindings.rs /home/matt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/dioxus-interpreter-js-0.4.3/src/../README.md /home/matt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/dioxus-interpreter-js-0.4.3/src/./interpreter.js /home/matt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/dioxus-interpreter-js-0.4.3/src/./common.js
+
+/home/matt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/dioxus-interpreter-js-0.4.3/src/lib.rs:
+/home/matt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/dioxus-interpreter-js-0.4.3/src/sledgehammer_bindings.rs:
+/home/matt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/dioxus-interpreter-js-0.4.3/src/../README.md:
+/home/matt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/dioxus-interpreter-js-0.4.3/src/./interpreter.js:
+/home/matt/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/dioxus-interpreter-js-0.4.3/src/./common.js:
