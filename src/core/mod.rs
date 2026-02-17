@@ -73,20 +73,34 @@ impl Core {
         let event_tx = self.event_tx.clone();
         tokio::task::spawn_blocking(move || {
             log::info!("BACnet receiver thread started for {}", iface.ip);
+            let mut last_error_log = std::time::Instant::now() - std::time::Duration::from_secs(60);
+            let mut error_count = 0;
+
             loop {
                 let mut client_lock = client_arc.lock().unwrap();
-                // receive_frame has internal 100ms timeout
-                if let Ok(Some((data, src))) = client_lock.receive_frame() {
-                    if let Ok(apdu) = Apdu::decode(&data) {
-                        if let Ok(Some(mut device)) = discovery::parse_i_am(&apdu) {
-                            device.address = format!("{:?}", src);
-                            log::info!("Discovered device: {:?} from {:?}", device, src);
-                            let _ = event_tx.send(Event::DeviceDiscovered(device));
+                match client_lock.receive_frame() {
+                    Ok(Some((data, src))) => {
+                        error_count = 0;
+                        if let Ok(apdu) = Apdu::decode(&data) {
+                            if let Ok(Some(mut device)) = discovery::parse_i_am(&apdu) {
+                                device.address = format!("{:?}", src);
+                                log::info!("Discovered device: {:?} from {:?}", device, src);
+                                let _ = event_tx.send(Event::DeviceDiscovered(device));
+                            }
                         }
                     }
-                } else {
-                    // Small sleep to prevent CPU spinning if no data
-                    std::thread::sleep(std::time::Duration::from_millis(100));
+                    Ok(None) => {
+                        // Timeout/WouldBlock - no data
+                        std::thread::sleep(std::time::Duration::from_millis(100));
+                    }
+                    Err(e) => {
+                        error_count += 1;
+                        if last_error_log.elapsed() > std::time::Duration::from_secs(10) {
+                            log::error!("BACnet receiver error (count: {}): {}", error_count, e);
+                            last_error_log = std::time::Instant::now();
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(100));
+                    }
                 }
             }
         });

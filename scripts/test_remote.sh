@@ -25,7 +25,7 @@ ssh -i $SSH_KEY $REMOTE_TARGET "cd $REMOTE_DIR/tests/bacnet-responder && cargo b
 echo "[$(date +%T)] Starting binary in background..."
 # Use </dev/null to ensure SSH doesn't wait for the background process to exit
 ssh -i $SSH_KEY $REMOTE_TARGET "cd $REMOTE_DIR/tests/bacnet-responder && \
-    nohup ./target/debug/bacnet-responder $DEVICE_ID </dev/null >responder.log 2>&1 &"
+    nohup ./target/debug/bacnet-responder $DEVICE_ID localhost $REMOTE_IFACE </dev/null >responder.log 2>&1 &"
 
 echo "Waiting 10s for responder to bind port 47808..."
 sleep 10
@@ -33,9 +33,16 @@ sleep 10
 echo "[$(date +%T)] Checking remote logs:"
 ssh -i $SSH_KEY $REMOTE_TARGET "tail -n 5 $REMOTE_DIR/tests/bacnet-responder/responder.log"
 
-echo "[$(date +%T)] --- 3. Detecting Local Interface ---"
-LOCAL_IFACE=$(ip route get $REMOTE_IP | grep -oP 'dev \K\S+')
-echo "Local interface detected: $LOCAL_IFACE"
+echo "[$(date +%T)] --- 3. Selecting Interfaces ---"
+if [ -z "$1" ]; then
+    echo "Error: No local interface specified."
+    echo "Usage: ./scripts/test_remote.sh <local_interface> [remote_interface]"
+    exit 1
+fi
+LOCAL_IFACE=$1
+REMOTE_IFACE=${2:-wlan0}
+echo "Local interface selected: $LOCAL_IFACE"
+echo "Remote interface selected: $REMOTE_IFACE"
 
 echo "[$(date +%T)] --- 4. Running Local Discovery ---"
 RUST_LOG=info cargo run -- discover $LOCAL_IFACE | tee local_test.log
