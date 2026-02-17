@@ -121,6 +121,17 @@ struct PingRequest {
     target_ip: String,
 }
 
+async fn ping_handler(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<PingRequest>,
+) -> impl IntoResponse {
+    let _ = state.cmd_tx.send(Command::Ping { 
+        interface: "".to_string(), // Use current binding
+        target: payload.target_ip 
+    }).await;
+    Json("Ping sent")
+}
+
 #[derive(serde::Deserialize)]
 struct WriteRequest {
     device_id: u32,
