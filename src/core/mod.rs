@@ -84,8 +84,10 @@ impl Core {
                             let _ = event_tx.send(Event::DeviceDiscovered(device));
                         }
                     }
+                } else {
+                    // Small sleep to prevent CPU spinning if no data
+                    std::thread::sleep(std::time::Duration::from_millis(100));
                 }
-                std::thread::yield_now();
             }
         });
 

@@ -1,5 +1,5 @@
 #!/bin/bash
-# RustyGate Remote Integration Test - VERBOSE TRIAGE MODE
+# RustyGate Remote Integration Test - ROBUST MODE
 # Run from project root
 
 # Load private configuration
@@ -12,34 +12,35 @@ fi
 
 REMOTE_TARGET="$REMOTE_USER@$REMOTE_IP"
 
-echo "--- 1. Updating Code on Remote Machine ---"
+echo "[$(date +%T)] --- 1. Updating Code on Remote Machine ---"
 ssh -i $SSH_KEY $REMOTE_TARGET "cd $REMOTE_DIR && git pull origin main"
 
-echo "--- 2. Starting Remote Responder ---"
-# Kill any existing responder first
+echo "[$(date +%T)] --- 2. Starting Remote Responder ---"
 ssh -i $SSH_KEY $REMOTE_TARGET "pkill -f bacnet-responder || true"
 
-echo "Compiling and starting responder on remote (this may take a moment)..."
-# Start responder and capture PID
-# We use a subshell to nohup and disassociate
+echo "[$(date +%T)] Building responder on remote..."
+# Build first so we don't time out the background start
+ssh -i $SSH_KEY $REMOTE_TARGET "cd $REMOTE_DIR/tests/bacnet-responder && cargo build"
+
+echo "[$(date +%T)] Starting binary in background..."
+# Use </dev/null to ensure SSH doesn't wait for the background process to exit
 ssh -i $SSH_KEY $REMOTE_TARGET "cd $REMOTE_DIR/tests/bacnet-responder && \
-    RUST_LOG=info cargo build && \
-    nohup target/debug/bacnet-responder $DEVICE_ID > responder.log 2>&1 &"
+    nohup ./target/debug/bacnet-responder $DEVICE_ID </dev/null >responder.log 2>&1 &"
 
-# Triage remote startup
-echo "Checking remote log for success..."
-sleep 5
-ssh -i $SSH_KEY $REMOTE_TARGET "tail -n 20 $REMOTE_DIR/tests/bacnet-responder/responder.log"
+echo "Waiting 10s for responder to bind port 47808..."
+sleep 10
 
-echo "--- 3. Detecting Local Interface ---"
+echo "[$(date +%T)] Checking remote logs:"
+ssh -i $SSH_KEY $REMOTE_TARGET "tail -n 5 $REMOTE_DIR/tests/bacnet-responder/responder.log"
+
+echo "[$(date +%T)] --- 3. Detecting Local Interface ---"
 LOCAL_IFACE=$(ip route get $REMOTE_IP | grep -oP 'dev \K\S+')
 echo "Local interface detected: $LOCAL_IFACE"
 
-echo "--- 4. Running Local Discovery (with RUST_LOG=info) ---"
-# We run with RUST_LOG=info to see the core threads working
+echo "[$(date +%T)] --- 4. Running Local Discovery ---"
 RUST_LOG=info cargo run -- discover $LOCAL_IFACE | tee local_test.log
 
-echo "--- 5. Verifying Results ---"
+echo "[$(date +%T)] --- 5. Verifying Results ---"
 if grep -q "ID=$DEVICE_ID" local_test.log; then
     echo "========================================"
     echo "SUCCESS: Remote device $DEVICE_ID discovered!"
@@ -48,12 +49,11 @@ if grep -q "ID=$DEVICE_ID" local_test.log; then
 else
     echo "========================================"
     echo "FAILURE: Remote device $DEVICE_ID NOT found."
-    echo "Check local_test.log and remote responder.log"
     echo "========================================"
     RESULT=1
 fi
 
-echo "--- 6. Cleanup Remote Machine ---"
+echo "[$(date +%T)] --- 6. Cleanup Remote Machine ---"
 ssh -i $SSH_KEY $REMOTE_TARGET "pkill -f bacnet-responder"
 
 exit $RESULT
