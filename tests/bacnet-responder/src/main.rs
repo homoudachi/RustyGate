@@ -126,98 +126,103 @@ async fn main() -> anyhow::Result<()> {
         match datalink.receive_frame() {
             Ok((data, src_addr)) => {
                 error_count.store(0, Ordering::Relaxed);
-                if let Ok(apdu) = Apdu::decode(&data) {
-                    match apdu {
-                        Apdu::UnconfirmedRequest { service_choice, service_data } => {
-                            if service_choice == UnconfirmedServiceChoice::WhoIs as u8 {
-                                if let Ok(who_is) = WhoIsRequest::decode(&service_data) {
-                                    let s = state.lock().unwrap();
-                                    if who_is.matches(s.device_instance) {
-                                        if last_who_is_log.elapsed() > Duration::from_secs(5) {
-                                            log::info!("Received Who-Is from {:?}. Sending I-Am... (rate-limited)", src_addr);
-                                            last_who_is_log = tokio::time::Instant::now();
-                                        }
-                                        
-                                        let iam = IAmRequest::new(
-                                            ObjectIdentifier::new(ObjectType::Device, s.device_instance),
-                                            1476,
-                                            0,
-                                            999,
-                                        );
-                                        
-                                        let mut iam_data = Vec::new();
-                                        if let Err(e) = iam.encode(&mut iam_data) {
-                                            log::error!("Failed to encode I-Am: {}", e);
-                                            continue;
-                                        }
-                                        
-                                        let response_apdu = Apdu::UnconfirmedRequest {
-                                            service_choice: UnconfirmedServiceChoice::IAm as u8,
-                                            service_data: iam_data,
-                                        };
-                                        
-                                        let encoded_response = response_apdu.encode();
-                                        if let Err(e) = datalink.send_frame(&encoded_response, &src_addr) {
-                                            log::error!("Failed to send I-Am: {}", e);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        Apdu::ConfirmedRequest { invoke_id, service_choice, service_data, .. } => {
-                            if service_choice == 12 { // ReadProperty
-                                let s = state.lock().unwrap();
-                                match decode_read_property_request(&service_data) {
-                                    Ok(req) => {
-                                        log::info!("Received ReadProperty: {:?} for property {}", req.object_identifier, req.property_identifier);
-                                        
-                                        let result = if req.property_identifier == PropertyIdentifier::ObjectList as u32 {
-                                            let list = s.db.get_all_objects();
-                                            log::info!("Responding with ObjectList ({} objects)", list.len());
-                                            let val = PropertyValue::Array(list.into_iter().map(PropertyValue::ObjectIdentifier).collect());
-                                            Some(val)
-                                        } else {
-                                            s.db.get_property(req.object_identifier, unsafe { std::mem::transmute(req.property_identifier) }).ok()
-                                        };
-
-                                        if let Some(val) = result {
-                                            let mut response_data = Vec::new();
-                                            if let Err(e) = encode_read_property_response(&mut response_data, req.object_identifier, req.property_identifier, val) {
-                                                log::error!("Failed to encode ReadProperty response: {}", e);
-                                            } else {
-                                                let ack = Apdu::ComplexAck {
-                                                    segmented: false,
-                                                    more_follows: false,
-                                                    invoke_id,
-                                                    sequence_number: None,
-                                                    proposed_window_size: None,
-                                                    service_choice,
-                                                    service_data: response_data,
-                                                };
-                                                if let Err(e) = datalink.send_frame(&ack.encode(), &src_addr) {
-                                                    log::error!("Failed to send ComplexAck: {}", e);
-                                                } else {
-                                                    log::info!("Sent ComplexAck to {:?}", src_addr);
-                                                }
+                match Apdu::decode(&data) {
+                    Ok(apdu) => {
+                        match apdu {
+                            Apdu::UnconfirmedRequest { service_choice, service_data } => {
+                                if service_choice == UnconfirmedServiceChoice::WhoIs as u8 {
+                                    if let Ok(who_is) = WhoIsRequest::decode(&service_data) {
+                                        let s = state.lock().unwrap();
+                                        if who_is.matches(s.device_instance) {
+                                            if last_who_is_log.elapsed() > Duration::from_secs(5) {
+                                                log::info!("Received Who-Is from {:?}. Sending I-Am... (rate-limited)", src_addr);
+                                                last_who_is_log = tokio::time::Instant::now();
                                             }
-                                        } else {
-                                            log::warn!("Property {} not found on object {:?}", req.property_identifier, req.object_identifier);
-                                            let err = Apdu::Error {
-                                                invoke_id,
-                                                service_choice,
-                                                error_class: 1, // Object
-                                                error_code: 31, // Unknown property
+                                            
+                                            let iam = IAmRequest::new(
+                                                ObjectIdentifier::new(ObjectType::Device, s.device_instance),
+                                                1476,
+                                                0,
+                                                999,
+                                            );
+                                            
+                                            let mut iam_data = Vec::new();
+                                            if let Err(e) = iam.encode(&mut iam_data) {
+                                                log::error!("Failed to encode I-Am: {}", e);
+                                                continue;
+                                            }
+                                            
+                                            let response_apdu = Apdu::UnconfirmedRequest {
+                                                service_choice: UnconfirmedServiceChoice::IAm as u8,
+                                                service_data: iam_data,
                                             };
-                                            let _ = datalink.send_frame(&err.encode(), &src_addr);
+                                            
+                                            let encoded_response = response_apdu.encode();
+                                            if let Err(e) = datalink.send_frame(&encoded_response, &src_addr) {
+                                                log::error!("Failed to send I-Am: {}", e);
+                                            }
                                         }
-                                    }
-                                    Err(e) => {
-                                        log::error!("Failed to decode ReadProperty request: {}", e);
                                     }
                                 }
                             }
+                            Apdu::ConfirmedRequest { invoke_id, service_choice, service_data, .. } => {
+                                if service_choice == 12 { // ReadProperty
+                                    let s = state.lock().unwrap();
+                                    match decode_read_property_request(&service_data) {
+                                        Ok(req) => {
+                                            log::info!("Received ReadProperty: {:?} for property {}", req.object_identifier, req.property_identifier);
+                                            
+                                            let result = if req.property_identifier == PropertyIdentifier::ObjectList as u32 {
+                                                let list = s.db.get_all_objects();
+                                                log::info!("Responding with ObjectList ({} objects)", list.len());
+                                                let val = PropertyValue::Array(list.into_iter().map(PropertyValue::ObjectIdentifier).collect());
+                                                Some(val)
+                                            } else {
+                                                s.db.get_property(req.object_identifier, unsafe { std::mem::transmute(req.property_identifier) }).ok()
+                                            };
+
+                                            if let Some(val) = result {
+                                                let mut response_data = Vec::new();
+                                                if let Err(e) = encode_read_property_response(&mut response_data, req.object_identifier, req.property_identifier, val) {
+                                                    log::error!("Failed to encode ReadProperty response: {}", e);
+                                                } else {
+                                                    let ack = Apdu::ComplexAck {
+                                                        segmented: false,
+                                                        more_follows: false,
+                                                        invoke_id,
+                                                        sequence_number: None,
+                                                        proposed_window_size: None,
+                                                        service_choice,
+                                                        service_data: response_data,
+                                                    };
+                                                    if let Err(e) = datalink.send_frame(&ack.encode(), &src_addr) {
+                                                        log::error!("Failed to send ComplexAck: {}", e);
+                                                    } else {
+                                                        log::info!("Sent ComplexAck to {:?}", src_addr);
+                                                    }
+                                                }
+                                            } else {
+                                                log::warn!("Property {} not found on object {:?}", req.property_identifier, req.object_identifier);
+                                                let err = Apdu::Error {
+                                                    invoke_id,
+                                                    service_choice,
+                                                    error_class: 1, // Object
+                                                    error_code: 31, // Unknown property
+                                                };
+                                                let _ = datalink.send_frame(&err.encode(), &src_addr);
+                                            }
+                                        }
+                                        Err(e) => {
+                                            log::error!("Failed to decode ReadProperty request: {}", e);
+                                        }
+                                    }
+                                }
+                            }
+                            _ => {}
                         }
-                        _ => {}
+                    }
+                    Err(e) => {
+                        log::error!("Failed to decode APDU: {}", e);
                     }
                 }
             }
