@@ -13,7 +13,7 @@ pub struct Core {
     cmd_rx: mpsc::Receiver<Command>,
     event_tx: broadcast::Sender<Event>,
     bacnet_client: Option<Arc<Mutex<BacnetClient>>>,
-    shutdown: Arc<std::sync::atomic::AtomicBool>,
+    pub shutdown: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl Core {
