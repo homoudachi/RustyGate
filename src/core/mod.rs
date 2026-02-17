@@ -68,7 +68,7 @@ impl Core {
                 if let Some(client_mutex) = &self.bacnet_client {
                     let mut client = client_mutex.lock().unwrap();
                     let target_addr: std::net::IpAddr = target.parse()?;
-                    let dest = bacnet_rs::datalink::DataLinkAddress::Unicast(
+                    let dest = bacnet_rs::datalink::DataLinkAddress::Ip(
                         std::net::SocketAddr::new(target_addr, 47808)
                     );
                     client.send_who_is(None, None, Some(dest))?;
