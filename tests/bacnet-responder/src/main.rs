@@ -124,6 +124,7 @@ async fn main() -> anyhow::Result<()> {
     loop {
         match datalink.receive_frame() {
             Ok((data, src_addr)) => {
+                log::info!("RESPONDER RECEIVED: {} bytes from {:?}", data.len(), src_addr);
                 error_count.store(0, Ordering::Relaxed);
                 match Apdu::decode(&data) {
                     Ok(apdu) => {
@@ -157,7 +158,7 @@ async fn main() -> anyhow::Result<()> {
                                             };
                                             
                                             let encoded_response = response_apdu.encode();
-                                            if let Err(e) = datalink.send_frame(&encoded_response, &src_addr) {
+                                            if let Err(e) = datalink.send_frame(&encoded_response, &bacnet_rs::datalink::DataLinkAddress::Broadcast) {
                                                 log::error!("Failed to send I-Am: {}", e);
                                             }
                                         }
@@ -245,7 +246,7 @@ fn decode_read_property_request(data: &[u8]) -> anyhow::Result<ReadPropertyReque
     let ((obj_type, instance), c1) = encoding::decode_context_object_id(&data[pos..], 0)
         .map_err(|e| anyhow::anyhow!(e.to_string()))?;
     pos += c1;
-    let (prop_id, c2) = encoding::decode_context_enumerated(&data[pos..], 1)
+    let (prop_id, _c2) = encoding::decode_context_enumerated(&data[pos..], 1)
         .map_err(|e| anyhow::anyhow!(e.to_string()))?;
     
     Ok(ReadPropertyRequest::new(
