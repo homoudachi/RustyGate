@@ -167,40 +167,52 @@ async fn main() -> anyhow::Result<()> {
                         Apdu::ConfirmedRequest { invoke_id, service_choice, service_data, .. } => {
                             if service_choice == 12 { // ReadProperty
                                 let s = state.lock().unwrap();
-                                // We need to decode the request manually since we don't have a high-level decoder for everything
-                                if let Ok(req) = decode_read_property_request(&service_data) {
-                                    log::info!("Received ReadProperty: {:?} for property {}", req.object_identifier, req.property_identifier);
-                                    
-                                    let result = if req.property_identifier == PropertyIdentifier::ObjectList as u32 {
-                                        let list = s.db.get_all_objects();
-                                        let val = PropertyValue::Array(list.into_iter().map(PropertyValue::ObjectIdentifier).collect());
-                                        Some(val)
-                                    } else {
-                                        s.db.get_property(req.object_identifier, unsafe { std::mem::transmute(req.property_identifier) }).ok()
-                                    };
-
-                                    if let Some(val) = result {
-                                        let mut response_data = Vec::new();
-                                        if encode_read_property_response(&mut response_data, req.object_identifier, req.property_identifier, val).is_ok() {
-                                            let ack = Apdu::ComplexAck {
-                                                segmented: false,
-                                                more_follows: false,
-                                                invoke_id,
-                                                sequence_number: None,
-                                                proposed_window_size: None,
-                                                service_choice,
-                                                service_data: response_data,
-                                            };
-                                            let _ = datalink.send_frame(&ack.encode(), &src_addr);
-                                        }
-                                    } else {
-                                        let err = Apdu::Error {
-                                            invoke_id,
-                                            service_choice,
-                                            error_class: 1, // Object
-                                            error_code: 31, // Unknown property
+                                match decode_read_property_request(&service_data) {
+                                    Ok(req) => {
+                                        log::info!("Received ReadProperty: {:?} for property {}", req.object_identifier, req.property_identifier);
+                                        
+                                        let result = if req.property_identifier == PropertyIdentifier::ObjectList as u32 {
+                                            let list = s.db.get_all_objects();
+                                            log::info!("Responding with ObjectList ({} objects)", list.len());
+                                            let val = PropertyValue::Array(list.into_iter().map(PropertyValue::ObjectIdentifier).collect());
+                                            Some(val)
+                                        } else {
+                                            s.db.get_property(req.object_identifier, unsafe { std::mem::transmute(req.property_identifier) }).ok()
                                         };
-                                        let _ = datalink.send_frame(&err.encode(), &src_addr);
+
+                                        if let Some(val) = result {
+                                            let mut response_data = Vec::new();
+                                            if let Err(e) = encode_read_property_response(&mut response_data, req.object_identifier, req.property_identifier, val) {
+                                                log::error!("Failed to encode ReadProperty response: {}", e);
+                                            } else {
+                                                let ack = Apdu::ComplexAck {
+                                                    segmented: false,
+                                                    more_follows: false,
+                                                    invoke_id,
+                                                    sequence_number: None,
+                                                    proposed_window_size: None,
+                                                    service_choice,
+                                                    service_data: response_data,
+                                                };
+                                                if let Err(e) = datalink.send_frame(&ack.encode(), &src_addr) {
+                                                    log::error!("Failed to send ComplexAck: {}", e);
+                                                } else {
+                                                    log::info!("Sent ComplexAck to {:?}", src_addr);
+                                                }
+                                            }
+                                        } else {
+                                            log::warn!("Property {} not found on object {:?}", req.property_identifier, req.object_identifier);
+                                            let err = Apdu::Error {
+                                                invoke_id,
+                                                service_choice,
+                                                error_class: 1, // Object
+                                                error_code: 31, // Unknown property
+                                            };
+                                            let _ = datalink.send_frame(&err.encode(), &src_addr);
+                                        }
+                                    }
+                                    Err(e) => {
+                                        log::error!("Failed to decode ReadProperty request: {}", e);
                                     }
                                 }
                             }
