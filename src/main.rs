@@ -35,6 +35,19 @@ fn main() {
                     return;
                 }
             }
+            "ping" => {
+                if let (Some(iface), Some(target)) = (args.get(2), args.get(3)) {
+                    println!("Pinging {} via {}...", target, iface);
+                    run_core_oneshot(Command::Ping { 
+                        interface: iface.clone(), 
+                        target: target.clone() 
+                    });
+                    return;
+                } else {
+                    println!("Usage: cargo run -- ping <interface_name> <target_ip>");
+                    return;
+                }
+            }
             _ => {} // Fall through to standard app launch
         }
     }

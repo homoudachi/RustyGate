@@ -63,6 +63,18 @@ impl Core {
             Command::StartDiscovery => {
                 self.start_discovery().await?;
             }
+            Command::Ping { interface, target } => {
+                self.bind_interface(&interface).await?;
+                if let Some(client_mutex) = &self.bacnet_client {
+                    let mut client = client_mutex.lock().unwrap();
+                    let target_addr: std::net::IpAddr = target.parse()?;
+                    let dest = bacnet_rs::datalink::DataLinkAddress::Unicast(
+                        std::net::SocketAddr::new(target_addr, 47808)
+                    );
+                    client.send_who_is(None, None, Some(dest))?;
+                    self.event_tx.send(Event::StatusMessage(format!("Sent targeted Who-Is to {}", target)))?;
+                }
+            }
             _ => {
                 log::warn!("Command not yet implemented: {:?}", cmd);
             }
@@ -138,7 +150,7 @@ impl Core {
     async fn start_discovery(&mut self) -> Result<()> {
         if let Some(client_mutex) = &self.bacnet_client {
             let mut client = client_mutex.lock().unwrap();
-            client.send_who_is(None, None)?;
+            client.send_who_is(None, None, None)?;
             self.event_tx.send(Event::StatusMessage("Who-Is broadcast sent".to_string()))?;
         } else {
             self.event_tx.send(Event::StatusMessage("Error: No interface bound".to_string()))?;

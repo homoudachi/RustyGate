@@ -7,6 +7,11 @@ pub enum Command {
     BindInterface(String),
     /// For CLI testing: binds and starts discovery immediately
     BindAndDiscover(String),
+    /// Send a Who-Is to a specific IP
+    Ping {
+        interface: String,
+        target: String,
+    },
     WriteProperty {
         device_id: u32,
         object_type: u16,

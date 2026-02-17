@@ -16,7 +16,7 @@ impl BacnetClient {
         Ok(Self { datalink })
     }
 
-    pub fn send_who_is(&mut self, low: Option<u32>, high: Option<u32>) -> Result<()> {
+    pub fn send_who_is(&mut self, low: Option<u32>, high: Option<u32>, destination: Option<DataLinkAddress>) -> Result<()> {
         let mut who_is = WhoIsRequest::new();
         who_is.device_instance_range_low_limit = low;
         who_is.device_instance_range_high_limit = high;
@@ -30,9 +30,10 @@ impl BacnetClient {
         };
 
         let encoded = apdu.encode();
-        self.datalink.send_frame(&encoded, &DataLinkAddress::Broadcast)?;
+        let dest = destination.unwrap_or(DataLinkAddress::Broadcast);
+        self.datalink.send_frame(&encoded, &dest)?;
         
-        log::info!("Sent Who-Is request");
+        log::info!("Sent Who-Is request to {:?}", dest);
         Ok(())
     }
 
