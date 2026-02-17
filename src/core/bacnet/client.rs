@@ -14,8 +14,6 @@ pub struct BacnetClient {
 impl BacnetClient {
     pub fn new(bind_addr: SocketAddr) -> Result<Self> {
         let datalink = BacnetIpDataLink::new(bind_addr)?;
-        // Set a read timeout to prevent blocking forever, allowing shutdown checks
-        datalink.socket.set_read_timeout(Some(std::time::Duration::from_millis(500)))?;
         Ok(Self { datalink, invoke_id: 0 })
     }
 
