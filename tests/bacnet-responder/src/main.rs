@@ -100,15 +100,15 @@ async fn main() -> anyhow::Result<()> {
         }
     });
 
-    let bind_addr: SocketAddr = if let Some(name) = iface_name {
+    let bind_addr: SocketAddr = "0.0.0.0:47808".parse()?;
+    
+    // We can still use iface_name to log which IP we are simulating
+    if let Some(name) = iface_name {
         let addrs = if_addrs::get_if_addrs()?;
-        let iface = addrs.into_iter()
-            .find(|i| i.name == name && i.addr.ip().is_ipv4())
-            .ok_or_else(|| anyhow::anyhow!("Interface {} not found or has no IPv4", name))?;
-        SocketAddr::new(iface.addr.ip(), 47808)
-    } else {
-        "0.0.0.0:47808".parse()?
-    };
+        if let Some(iface) = addrs.into_iter().find(|i| i.name == name && i.addr.ip().is_ipv4()) {
+            log::info!("Simulating device on interface {} (IP: {})", name, iface.addr.ip());
+        }
+    }
 
     let mut datalink = match BacnetIpDataLink::new(bind_addr) {
         Ok(d) => d,
