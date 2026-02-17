@@ -1,0 +1,7 @@
+# Private Test Configuration Template
+# Copy this to test_config.sh and fill in your details
+REMOTE_USER="username"
+REMOTE_IP="1.2.3.4"
+SSH_KEY="./key"
+REMOTE_DIR="~/RustyGate"
+DEVICE_ID=99999
