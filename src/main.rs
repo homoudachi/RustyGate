@@ -70,6 +70,7 @@ fn run_core_oneshot(cmd: Command) {
         
         let _ = cmd_tx.send(cmd).await;
 
+        let core_shutdown_handle = core.shutdown.clone();
         tokio::spawn(async move {
             if let Err(e) = core.run().await {
                 log::error!("Core error: {}", e);
@@ -93,9 +94,12 @@ fn run_core_oneshot(cmd: Command) {
                 }
                 _ = &mut timeout => {
                     println!("Discovery timed out.");
+                    core_shutdown_handle.store(true, std::sync::atomic::Ordering::SeqCst);
                     break;
                 }
             }
         }
+        // Give it a moment to clean up
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
     });
 }

@@ -13,6 +13,7 @@ pub struct Core {
     cmd_rx: mpsc::Receiver<Command>,
     event_tx: broadcast::Sender<Event>,
     bacnet_client: Option<Arc<Mutex<BacnetClient>>>,
+    shutdown: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl Core {
@@ -21,19 +22,32 @@ impl Core {
             cmd_rx, 
             event_tx,
             bacnet_client: None,
+            shutdown: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
+    }
+
+    pub fn shutdown(&self) {
+        self.shutdown.store(true, std::sync::atomic::Ordering::SeqCst);
     }
 
     pub async fn run(&mut self) -> Result<()> {
         log::info!("Starting Core Engine...");
 
         loop {
+            if self.shutdown.load(std::sync::atomic::Ordering::SeqCst) {
+                break;
+            }
             tokio::select! {
                 Some(cmd) = self.cmd_rx.recv() => {
                     self.handle_command(cmd).await?;
                 }
+                _ = tokio::time::sleep(std::time::Duration::from_millis(500)) => {
+                    // Check shutdown occasionally
+                }
             }
         }
+        log::info!("Core Engine shut down.");
+        Ok(())
     }
 
     async fn handle_command(&mut self, cmd: Command) -> Result<()> {
@@ -71,12 +85,17 @@ impl Core {
 
         // Spawn a dedicated thread for receiving frames (blocking I/O)
         let event_tx = self.event_tx.clone();
+        let shutdown = Arc::clone(&self.shutdown);
         tokio::task::spawn_blocking(move || {
             log::info!("BACnet receiver thread started for {}", iface.ip);
             let mut last_error_log = std::time::Instant::now() - std::time::Duration::from_secs(60);
             let mut error_count = 0;
 
             loop {
+                if shutdown.load(std::sync::atomic::Ordering::SeqCst) {
+                    log::info!("BACnet receiver thread shutting down.");
+                    break;
+                }
                 let mut client_lock = client_arc.lock().unwrap();
                 match client_lock.receive_frame() {
                     Ok(Some((data, src))) => {
