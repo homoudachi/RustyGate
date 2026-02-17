@@ -5,6 +5,8 @@ pub enum Command {
     StartDiscovery,
     StopDiscovery,
     BindInterface(String),
+    /// For CLI testing: binds and starts discovery immediately
+    BindAndDiscover(String),
     WriteProperty {
         device_id: u32,
         object_type: u16,

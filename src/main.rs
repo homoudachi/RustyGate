@@ -3,27 +3,52 @@ mod ui;
 mod common;
 
 use crate::core::Core;
-use crate::common::types::Command;
+use crate::common::types::{Command, Event};
+use crate::core::network::interface;
 use tokio::sync::{mpsc, broadcast};
+use std::env;
 
 fn main() {
-    // Initialize logging
     env_logger::init();
 
-    // Create channels for Inter-Task Communication
-    // UI -> Core
+    let args: Vec<String> = env::args().collect();
+
+    // Check for CLI mode
+    if args.len() > 1 {
+        match args[1].as_str() {
+            "list" => {
+                println!("Available Network Interfaces:");
+                if let Ok(ifaces) = interface::list_interfaces() {
+                    for iface in ifaces {
+                        println!(" - {}", iface.name);
+                    }
+                }
+                return;
+            }
+            "discover" => {
+                if let Some(iface_name) = args.get(2) {
+                    println!("Running manual discovery on {}...", iface_name);
+                    run_core_oneshot(Command::BindAndDiscover(iface_name.clone()));
+                    return;
+                } else {
+                    println!("Usage: cargo run -- discover <interface_name>");
+                    return;
+                }
+            }
+            _ => {} // Fall through to standard app launch
+        }
+    }
+
+    // Standard Launch (Core + Web UI)
     let (cmd_tx, cmd_rx) = mpsc::channel::<Command>(100);
-    // Core -> UI
     let (event_tx, _event_rx) = broadcast::channel(100);
 
-    // Start the Tokio runtime for both Core and Web UI
     let core_event_tx = event_tx.clone();
     let rt = tokio::runtime::Runtime::new().unwrap();
     rt.block_on(async {
         let cmd_tx_clone = cmd_tx.clone();
         let event_tx_clone = event_tx.clone();
         
-        // Spawn the Web UI
         tokio::spawn(async move {
             ui::launch(cmd_tx_clone, event_tx_clone).await;
         });
@@ -31,6 +56,46 @@ fn main() {
         let mut core = Core::new(cmd_rx, core_event_tx);
         if let Err(e) = core.run().await {
             log::error!("Core engine error: {}", e);
+        }
+    });
+}
+
+fn run_core_oneshot(cmd: Command) {
+    let (cmd_tx, cmd_rx) = mpsc::channel::<Command>(100);
+    let (event_tx, mut event_rx) = broadcast::channel(100);
+
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(async {
+        let mut core = Core::new(cmd_rx, event_tx);
+        
+        let _ = cmd_tx.send(cmd).await;
+
+        tokio::spawn(async move {
+            if let Err(e) = core.run().await {
+                log::error!("Core error: {}", e);
+            }
+        });
+
+        println!("Waiting for devices (5s)...");
+        let timeout = tokio::time::sleep(std::time::Duration::from_secs(5));
+        tokio::pin!(timeout);
+
+        loop {
+            tokio::select! {
+                Ok(event) = event_rx.recv() => {
+                    match event {
+                        Event::DeviceDiscovered(dev) => {
+                            println!("FOUND DEVICE: ID={} Address={}", dev.instance, dev.address);
+                        }
+                        Event::StatusMessage(msg) => println!("Status: {}", msg),
+                        _ => {}
+                    }
+                }
+                _ = &mut timeout => {
+                    println!("Discovery timed out.");
+                    break;
+                }
+            }
         }
     });
 }

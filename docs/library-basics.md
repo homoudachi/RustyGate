@@ -25,15 +25,27 @@ let datalink = BacnetIpDataLink::new(bind_addr).unwrap();
 ```
 
 ### Services and APDUs
-BACnet services are handled via Application Protocol Data Units (APDUs).
-- **Who-Is**: Used for device discovery.
-- **I-Am**: Response to Who-Is.
-- **ReadProperty**: Read a specific property of an object.
+BACnet services are handled via Application Protocol Data Units (APDUs). 
+**Note:** In `bacnet-rs`, `service_choice` in `UnconfirmedRequest` is a `u8`. You must cast the enum: `UnconfirmedServiceChoice::WhoIs as u8`.
 
-Example of creating a Who-Is request:
+Communication requires the `DataLink` trait for `receive_frame` and `send_frame`.
+
+Example of responding to a Who-Is:
 ```rust
-use bacnet_rs::service::WhoIsRequest;
-let whois = WhoIsRequest::for_device(12345);
+use bacnet_rs::app::Apdu;
+use bacnet_rs::datalink::{DataLink, DataLinkAddress};
+use bacnet_rs::service::UnconfirmedServiceChoice;
+
+match datalink.receive_frame() {
+    Ok((data, src)) => {
+        if let Ok(Apdu::UnconfirmedRequest { service_choice, .. }) = Apdu::decode(&data) {
+            if service_choice == UnconfirmedServiceChoice::WhoIs as u8 {
+                // ... send I-Am
+            }
+        }
+    }
+    _ => {}
+}
 ```
 
 ## 2. rumqttc

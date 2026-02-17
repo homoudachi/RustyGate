@@ -22,7 +22,13 @@ pub async fn launch(cmd_tx: mpsc::Sender<Command>, event_tx: broadcast::Sender<E
     let addr = SocketAddr::from(([0, 0, 0, 0], 8080));
     log::info!("Web UI server listening on {}", addr);
     
-    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+    let listener = match tokio::net::TcpListener::bind(addr).await {
+        Ok(l) => l,
+        Err(e) => {
+            log::error!("Failed to bind Web UI to {}: {}. Is another instance running?", addr, e);
+            return;
+        }
+    };
     axum::serve(listener, app).await.unwrap();
 }
 

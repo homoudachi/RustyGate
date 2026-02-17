@@ -22,6 +22,7 @@ RustyGate runs as a single process with two primary components:
 - `src/common/`: Shared types and constants used by both Core and UI.
 
 ## 5. Testing Strategy (Remote Responder)
-- **Tooling**: A dedicated `bacnet-responder` simulator.
-- **Orchestration**: Automated test runners using MQTT to manipulate the responder's state and verify gateway translation.
-- **Verification**: Strict validation of COV thresholds, polling intervals, and Priority Array logic.
+- **Tooling**: A dedicated `bacnet-responder` simulator (located in `tests/bacnet-responder`).
+- **Functionality**: Acts as a "Ghost Device" that listens on the network and responds to BACnet services.
+- **Orchestration**: Controllable via MQTT on topic `test/ghost/config` to dynamically change its Device ID or object values.
+- **Verification**: Used to verify Gateway discovery (`Who-Is`) and polling without requiring physical hardware.

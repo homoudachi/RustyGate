@@ -1,5 +1,8 @@
-use bacnet_rs::datalink::bip::BacnetIpDataLink;
-use bacnet_rs::service::WhoIsRequest;
+use bacnet_rs::{
+    app::Apdu,
+    datalink::{bip::BacnetIpDataLink, DataLink, DataLinkAddress},
+    service::{UnconfirmedServiceChoice, WhoIsRequest},
+};
 use anyhow::Result;
 use std::net::SocketAddr;
 
@@ -13,12 +16,31 @@ impl BacnetClient {
         Ok(Self { datalink })
     }
 
-    pub fn send_who_is(&self, low: Option<u32>, high: Option<u32>) -> Result<()> {
+    pub fn send_who_is(&mut self, low: Option<u32>, high: Option<u32>) -> Result<()> {
         let mut who_is = WhoIsRequest::new();
         who_is.device_instance_range_low_limit = low;
         who_is.device_instance_range_high_limit = high;
         
-        log::info!("Sending Who-Is request: {:?}", who_is);
+        let mut data = Vec::new();
+        who_is.encode(&mut data).map_err(|e| anyhow::anyhow!(e.to_string()))?;
+
+        let apdu = Apdu::UnconfirmedRequest {
+            service_choice: UnconfirmedServiceChoice::WhoIs as u8,
+            service_data: data,
+        };
+
+        let encoded = apdu.encode();
+        self.datalink.send_frame(&encoded, &DataLinkAddress::Broadcast)?;
+        
+        log::info!("Sent Who-Is request");
         Ok(())
+    }
+
+    pub fn receive_frame(&mut self) -> Result<Option<(Vec<u8>, DataLinkAddress)>> {
+        match self.datalink.receive_frame() {
+            Ok((data, src)) => Ok(Some((data, src))),
+            Err(e) if e.to_string().contains("TimedOut") || e.to_string().contains("WouldBlock") => Ok(None),
+            Err(e) => Err(anyhow::anyhow!(e.to_string())),
+        }
     }
 }
