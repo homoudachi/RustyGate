@@ -1,6 +1,6 @@
 use bacnet_rs::{
     app::Apdu,
-    datalink::{bip::BacnetIpDataLink, DataLink, DataLinkAddress},
+    datalink::{bip::BacnetIpDataLink, DataLink},
     object::{ObjectIdentifier, ObjectType},
     service::{IAmRequest, UnconfirmedServiceChoice, WhoIsRequest},
 };

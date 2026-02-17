@@ -26,10 +26,6 @@ impl Core {
         }
     }
 
-    pub fn shutdown(&self) {
-        self.shutdown.store(true, std::sync::atomic::Ordering::SeqCst);
-    }
-
     pub async fn run(&mut self) -> Result<()> {
         log::info!("Starting Core Engine...");
 
