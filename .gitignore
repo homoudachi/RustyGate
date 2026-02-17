@@ -4,3 +4,4 @@ Cargo.lock
 key
 key.pub
 test_config.sh
+*.log
