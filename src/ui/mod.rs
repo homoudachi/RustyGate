@@ -63,6 +63,7 @@ pub async fn launch(cmd_tx: mpsc::Sender<Command>, event_tx: broadcast::Sender<E
         .route("/api/bind", post(bind_interface))
         .route("/api/discover", post(start_discovery))
         .route("/api/ping", post(ping_handler))
+        .route("/api/write", post(write_handler))
         .route("/api/devices", get(get_devices))
         .route("/api/devices/:id/objects", get(get_device_objects))
         .route("/api/events", get(events_handler))
@@ -120,15 +121,29 @@ struct PingRequest {
     target_ip: String,
 }
 
-async fn ping_handler(
+#[derive(serde::Deserialize)]
+struct WriteRequest {
+    device_id: u32,
+    address: String,
+    object_type: u16,
+    instance: u32,
+    property: u32,
+    value: String,
+}
+
+async fn write_handler(
     State(state): State<Arc<AppState>>,
-    Json(payload): Json<PingRequest>,
+    Json(payload): Json<WriteRequest>,
 ) -> impl IntoResponse {
-    let _ = state.cmd_tx.send(Command::Ping { 
-        interface: "".to_string(), // Use current binding
-        target: payload.target_ip 
+    let _ = state.cmd_tx.send(Command::WriteProperty {
+        device_id: payload.device_id,
+        address: payload.address,
+        object_type: payload.object_type,
+        instance: payload.instance,
+        property: payload.property,
+        value: payload.value,
     }).await;
-    Json("Ping sent")
+    Json("Write requested")
 }
 
 async fn get_devices(

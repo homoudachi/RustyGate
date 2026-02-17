@@ -74,10 +74,12 @@
                                             <th>Type</th>
                                             <th>Instance</th>
                                             <th>Name</th>
+                                            <th>Value</th>
+                                            <th>Action</th>
                                         </tr>
                                     </thead>
                                     <tbody id="objectList">
-                                        <tr><td colspan="3" class="text-center text-muted">Select a device to view objects</td></tr>
+                                        <tr><td colspan="5" class="text-center text-muted">Select a device to view objects</td></tr>
                                     </tbody>
                                 </table>
                             </div>
@@ -153,6 +155,9 @@
             });
         };
 
+        let currentDeviceId = null;
+        let currentDeviceAddress = null;
+
         async function loadDevices() {
             const res = await fetch('/api/devices');
             const devices = await res.json();
@@ -163,15 +168,17 @@
                         <td>${d.instance}</td>
                         <td>${d.address}</td>
                         <td>${d.name}</td>
-                        <td><button class="btn btn-outline-primary btn-xs" onclick="inspectDevice(${d.instance})">Inspect</button></td>
+                        <td><button class="btn btn-outline-primary btn-xs" onclick="inspectDevice(${d.instance}, '${d.address}')">Inspect</button></td>
                     </tr>
                 `).join('');
             }
         }
 
-        async function inspectDevice(id) {
+        async function inspectDevice(id, address) {
+            currentDeviceId = id;
+            currentDeviceAddress = address;
             addLog(`Requesting objects for device ${id}...`);
-            objectListEl.innerHTML = '<tr><td colspan="3" class="text-center">Loading...</td></tr>';
+            objectListEl.innerHTML = '<tr><td colspan="5" class="text-center">Loading...</td></tr>';
             
             const fetchObjects = async () => {
                 const res = await fetch(`/api/devices/${id}/objects`);
@@ -184,13 +191,13 @@
             };
 
             if (!await fetchObjects()) {
-                objectListEl.innerHTML = '<tr><td colspan="3" class="text-center text-muted">Discovery in progress...</td></tr>';
+                objectListEl.innerHTML = '<tr><td colspan="5" class="text-center text-muted">Discovery in progress...</td></tr>';
                 let attempts = 0;
                 const interval = setInterval(async () => {
                     if (await fetchObjects() || ++attempts > 10) {
                         clearInterval(interval);
                         if (attempts > 10 && objectListEl.innerHTML.includes("Discovery in progress")) {
-                            objectListEl.innerHTML = '<tr><td colspan="3" class="text-center text-danger">Discovery timed out</td></tr>';
+                            objectListEl.innerHTML = '<tr><td colspan="5" class="text-center text-danger">Discovery timed out</td></tr>';
                         }
                     }
                 }, 2000);
@@ -205,11 +212,31 @@
                         <td><span class="badge bg-info text-dark">${o.object_type}</span></td>
                         <td>${o.instance}</td>
                         <td>${o.name}</td>
+                        <td><input type="text" id="val-${o.object_type}-${o.instance}" class="form-control form-control-xs" style="width: 80px;" placeholder="..."></td>
+                        <td><button class="btn btn-primary btn-xs" onclick="writeProperty(${o.object_type}, ${o.instance})">Write</button></td>
                     </tr>
                 `).join('');
             } else {
-                objectListEl.innerHTML = '<tr><td colspan="3" class="text-center text-muted">Discovery in progress...</td></tr>';
+                objectListEl.innerHTML = '<tr><td colspan="5" class="text-center text-muted">Discovery in progress...</td></tr>';
             }
+        }
+
+        async function writeProperty(type, instance) {
+            const val = document.getElementById(`val-${type}-${instance}`).value;
+            if (!val) return;
+            addLog(`Writing ${val} to ${type}:${instance} on device ${currentDeviceId}...`);
+            await fetch('/api/write', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    device_id: currentDeviceId,
+                    address: currentDeviceAddress,
+                    object_type: type,
+                    instance: instance,
+                    property: 85, // PresentValue
+                    value: val
+                })
+            });
         }
 
         // Setup SSE for real-time events

@@ -68,4 +68,41 @@ impl BacnetClient {
         
         Ok(invoke_id)
     }
+
+    pub fn send_write_property(&mut self, dest: &DataLinkAddress, obj_id: bacnet_rs::object::ObjectIdentifier, prop_id: u32, value: bacnet_rs::object::PropertyValue) -> Result<u8> {
+        use bacnet_rs::encoding::*;
+
+        let mut data = Vec::new();
+        // 1. Object ID (Context 0)
+        data.extend(encode_context_object_id(obj_id.object_type as u16, obj_id.instance, 0).map_err(|e| anyhow::anyhow!(e.to_string()))?);
+        // 2. Property ID (Context 1)
+        data.extend(encode_context_enumerated(prop_id, 1).map_err(|e| anyhow::anyhow!(e.to_string()))?);
+        // 3. Value (Context 3)
+        data.push(0x3E); // Opening Tag 3
+        match &value {
+            bacnet_rs::object::PropertyValue::Real(f) => encode_real(&mut data, *f).map_err(|e| anyhow::anyhow!(e.to_string()))?,
+            bacnet_rs::object::PropertyValue::Boolean(b) => encode_boolean(&mut data, *b).map_err(|e| anyhow::anyhow!(e.to_string()))?,
+            _ => anyhow::bail!("Unsupported value type for WriteProperty"),
+        }
+        data.push(0x3F); // Closing Tag 3
+
+        let invoke_id = self.next_invoke_id();
+        let apdu = Apdu::ConfirmedRequest {
+            segmented: false,
+            more_follows: false,
+            segmented_response_accepted: true,
+            max_segments: MaxSegments::Unspecified,
+            max_response_size: MaxApduSize::Up1476,
+            invoke_id,
+            sequence_number: None,
+            proposed_window_size: None,
+            service_choice: 15, // WriteProperty
+            service_data: data,
+        };
+
+        let encoded = apdu.encode();
+        self.datalink.send_frame(&encoded, dest)?;
+        
+        Ok(invoke_id)
+    }
 }

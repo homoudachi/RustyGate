@@ -10,7 +10,7 @@ use crate::core::network::interface;
 use tokio::sync::{mpsc, broadcast};
 use anyhow::Result;
 use bacnet_rs::app::Apdu;
-use bacnet_rs::object::{PropertyIdentifier, ObjectIdentifier, ObjectType};
+use bacnet_rs::object::{PropertyIdentifier, ObjectIdentifier, ObjectType, PropertyValue};
 use bacnet_rs::datalink::DataLink;
 use std::sync::{Arc, Mutex};
 
@@ -90,6 +90,30 @@ impl Core {
                                             log::error!("ReadProperty failed: {}", e);
                                         } else {
                                             let _ = event_tx.send(Event::StatusMessage(format!("Requested object list from device {}", device_id)));
+                                        }
+                                    }
+                                });
+                            }
+                        }
+                        Command::WriteProperty { device_id, address, object_type, instance, property, value } => {
+                            if let Some(client_mutex) = &self.bacnet_client {
+                                let client_arc = Arc::clone(client_mutex);
+                                let event_tx = self.event_tx.clone();
+                                tokio::spawn(async move {
+                                    let mut client = client_arc.lock().unwrap();
+                                    if let Ok(target_addr) = address.parse::<std::net::SocketAddr>() {
+                                        let dest = bacnet_rs::datalink::DataLinkAddress::Ip(target_addr);
+                                        let obj_id = ObjectIdentifier::new(ObjectType::try_from(object_type).unwrap_or(ObjectType::AnalogValue), instance);
+                                        
+                                        // Attempt to parse value as float for now
+                                        if let Ok(val) = value.parse::<f32>() {
+                                            if let Err(e) = client.send_write_property(&dest, obj_id, property, PropertyValue::Real(val)) {
+                                                log::error!("WriteProperty failed: {}", e);
+                                            } else {
+                                                let _ = event_tx.send(Event::StatusMessage(format!("Sent WriteProperty to {}: {} = {}", device_id, obj_id.instance, val)));
+                                            }
+                                        } else {
+                                            log::error!("Failed to parse write value: {}", value);
                                         }
                                     }
                                 });

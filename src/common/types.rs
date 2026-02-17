@@ -19,6 +19,7 @@ pub enum Command {
     },
     WriteProperty {
         device_id: u32,
+        address: String,
         object_type: u16,
         instance: u32,
         property: u32,

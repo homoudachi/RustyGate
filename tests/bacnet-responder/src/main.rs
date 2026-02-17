@@ -53,6 +53,10 @@ async fn main() -> anyhow::Result<()> {
     ai2.set_present_value(10.0);
     db.add_object(Box::new(ai2)).unwrap();
 
+    let mut av1 = AnalogInput::new(10, "Temperature Setpoint".to_string()); // High instance for AV simulation
+    av1.set_present_value(21.0);
+    db.add_object(Box::new(av1)).unwrap();
+
     let bi1 = BinaryInput::new(1, "Fan Status".to_string());
     db.add_object(Box::new(bi1)).unwrap();
 
@@ -67,14 +71,20 @@ async fn main() -> anyhow::Result<()> {
     // Simulation task: update values periodically
     tokio::spawn(async move {
         let mut temp = 22.5;
+        let mut out_temp = 10.0;
         loop {
             sleep(Duration::from_secs(2)).await;
             temp += 0.1;
             if temp > 25.0 { temp = 20.0; }
+            out_temp += 0.05;
+            if out_temp > 15.0 { out_temp = 5.0; }
             
             let s = state_clone.lock().unwrap();
             let ai1_id = ObjectIdentifier::new(ObjectType::AnalogInput, 1);
             let _ = s.db.set_property(ai1_id, PropertyIdentifier::PresentValue, PropertyValue::Real(temp));
+            
+            let ai2_id = ObjectIdentifier::new(ObjectType::AnalogInput, 2);
+            let _ = s.db.set_property(ai2_id, PropertyIdentifier::PresentValue, PropertyValue::Real(out_temp));
         }
     });
 
@@ -221,6 +231,33 @@ async fn main() -> anyhow::Result<()> {
                                             log::error!("Failed to decode ReadProperty request: {}", e);
                                         }
                                     }
+                                } else if service_choice == 15 { // WriteProperty
+                                    let mut s = state.lock().unwrap();
+                                    match decode_write_property_request(&service_data) {
+                                        Ok((obj_id, prop_id, val)) => {
+                                            log::info!("Received WriteProperty: {:?} property {} = {:?}", obj_id, prop_id, val);
+                                            if let Err(e) = s.db.set_property(obj_id, unsafe { std::mem::transmute(prop_id) }, val) {
+                                                log::error!("Failed to set property: {}", e);
+                                                let err = Apdu::Error {
+                                                    invoke_id,
+                                                    service_choice,
+                                                    error_class: 1, // Object
+                                                    error_code: 31, // Unknown property or failed write
+                                                };
+                                                let _ = datalink.send_frame(&err.encode(), &src_addr);
+                                            } else {
+                                                log::info!("Property set successfully. Sending SimpleAck");
+                                                let ack = Apdu::SimpleAck {
+                                                    invoke_id,
+                                                    service_choice,
+                                                };
+                                                let _ = datalink.send_frame(&ack.encode(), &src_addr);
+                                            }
+                                        }
+                                        Err(e) => {
+                                            log::error!("Failed to decode WriteProperty request: {}", e);
+                                        }
+                                    }
                                 }
                             }
                             _ => {}
@@ -258,6 +295,86 @@ fn decode_read_property_request(data: &[u8]) -> anyhow::Result<ReadPropertyReque
         ObjectIdentifier::new(ObjectType::try_from(obj_type).unwrap(), instance),
         prop_id,
     ))
+}
+
+fn decode_write_property_request(data: &[u8]) -> anyhow::Result<(ObjectIdentifier, u32, PropertyValue)> {
+    let mut pos = 0;
+    // 1. Object ID (Context 0)
+    let ((obj_type, instance), c1) = encoding::decode_context_object_id(&data[pos..], 0)
+        .map_err(|e| anyhow::anyhow!("Failed to decode object id: {}", e))?;
+    pos += c1;
+    
+    // 2. Property ID (Context 1)
+    let (prop_id, c2) = encoding::decode_context_enumerated(&data[pos..], 1)
+        .map_err(|e| anyhow::anyhow!("Failed to decode property id: {}", e))?;
+    pos += c2;
+
+    // 3. Optional Array Index (Context 2) - skip if present
+    if pos < data.len() && (data[pos] & 0xF8) == 0x20 {
+        let (_, c3) = encoding::decode_context_unsigned(&data[pos..], 2)
+            .map_err(|e| anyhow::anyhow!("Failed to decode array index: {}", e))?;
+        pos += c3;
+    }
+
+    // 4. Property Value (Context 3 - Opening Tag 3)
+    if pos >= data.len() || data[pos] != 0x3E {
+        anyhow::bail!("Expected opening tag for property value (0x3E) at pos {}, got {:?}", pos, data.get(pos));
+    }
+    pos += 1;
+
+    let (val, consumed) = decode_property_value(&data[pos..])?;
+    pos += consumed;
+
+    // Closing Tag 3
+    if pos >= data.len() || data[pos] != 0x3F {
+        anyhow::bail!("Expected closing tag for property value (0x3F) at pos {}, got {:?}", pos, data.get(pos));
+    }
+    
+    Ok((
+        ObjectIdentifier::new(ObjectType::try_from(obj_type).unwrap(), instance),
+        prop_id,
+        val
+    ))
+}
+
+fn decode_property_value(data: &[u8]) -> anyhow::Result<(PropertyValue, usize)> {
+    // This is a simplified decoder for common types
+    if data.is_empty() {
+        anyhow::bail!("Empty data for property value");
+    }
+
+    let tag = data[0];
+    if (tag & 0x08) == 0 { // Application Tag
+        let app_tag = tag >> 4;
+        match app_tag {
+            1 => { // Boolean
+                Ok((PropertyValue::Boolean(tag == 0x11), 1))
+            }
+            2 => { // Unsigned
+                let (v, c) = encoding::decode_unsigned(data)
+                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                Ok((PropertyValue::UnsignedInteger(v), c))
+            }
+            4 => { // Real
+                let (v, c) = encoding::decode_real(data)
+                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                Ok((PropertyValue::Real(v), c))
+            }
+            9 => { // Enumerated
+                let (v, c) = encoding::decode_enumerated(data)
+                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                Ok((PropertyValue::Enumerated(v), c))
+            }
+            12 => { // Object Identifier
+                let ((t, i), c) = encoding::decode_object_identifier(data)
+                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                Ok((PropertyValue::ObjectIdentifier(ObjectIdentifier::new(ObjectType::try_from(t).unwrap(), i)), c))
+            }
+            _ => anyhow::bail!("Unsupported application tag: {}", app_tag),
+        }
+    } else {
+        anyhow::bail!("Context tags inside property value not supported in this simplified decoder")
+    }
 }
 
 fn encode_read_property_response(buf: &mut Vec<u8>, obj_id: ObjectIdentifier, prop_id: u32, val: PropertyValue) -> anyhow::Result<()> {
