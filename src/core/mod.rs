@@ -94,12 +94,18 @@ impl Core {
                         std::thread::sleep(std::time::Duration::from_millis(100));
                     }
                     Err(e) => {
-                        error_count += 1;
-                        if last_error_log.elapsed() > std::time::Duration::from_secs(10) {
-                            log::error!("BACnet receiver error (count: {}): {}", error_count, e);
-                            last_error_log = std::time::Instant::now();
+                        let err_str = e.to_string();
+                        if err_str.contains("WouldBlock") || err_str.contains("Resource temporarily unavailable") {
+                            // Equivalent to a timeout, just sleep and continue
+                            std::thread::sleep(std::time::Duration::from_millis(100));
+                        } else {
+                            error_count += 1;
+                            if last_error_log.elapsed() > std::time::Duration::from_secs(10) {
+                                log::error!("BACnet receiver error (count: {}): {}", error_count, e);
+                                last_error_log = std::time::Instant::now();
+                            }
+                            std::thread::sleep(std::time::Duration::from_millis(100));
                         }
-                        std::thread::sleep(std::time::Duration::from_millis(100));
                     }
                 }
             }
