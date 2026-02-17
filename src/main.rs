@@ -48,6 +48,20 @@ fn main() {
                     return;
                 }
             }
+            "discover-objects" => {
+                if let (Some(iface), Some(device_id), Some(address)) = (args.get(2), args.get(3), args.get(4)) {
+                    let id = device_id.parse().unwrap();
+                    println!("Discovering objects on {} ({}) via {}...", id, address, iface);
+                    run_core_oneshot(Command::DiscoverObjects { 
+                        device_id: id,
+                        address: address.clone()
+                    });
+                    return;
+                } else {
+                    println!("Usage: cargo run -- discover-objects <interface_name> <device_id> <device_address>");
+                    return;
+                }
+            }
             _ => {} // Fall through to standard app launch
         }
     }
@@ -100,6 +114,12 @@ fn run_core_oneshot(cmd: Command) {
                     match event {
                         Event::DeviceDiscovered(dev) => {
                             println!("FOUND DEVICE: ID={} Address={}", dev.instance, dev.address);
+                        }
+                        Event::DeviceObjectsDiscovered { device_id, objects } => {
+                            println!("OBJECTS DISCOVERED for Device {}:", device_id);
+                            for obj in objects {
+                                println!(" - [{:?}] {} (Instance {})", obj.object_type, obj.name, obj.instance);
+                            }
                         }
                         Event::StatusMessage(msg) => println!("Status: {}", msg),
                         _ => {}

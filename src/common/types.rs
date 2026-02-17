@@ -12,6 +12,10 @@ pub enum Command {
         interface: String,
         target: String,
     },
+    DiscoverObjects {
+        device_id: u32,
+        address: String,
+    },
     WriteProperty {
         device_id: u32,
         object_type: u16,
@@ -24,12 +28,23 @@ pub enum Command {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Event {
     DeviceDiscovered(BacnetDevice),
+    DeviceObjectsDiscovered {
+        device_id: u32,
+        objects: Vec<BacnetObjectInfo>,
+    },
     PointUpdate {
         device_id: u32,
         object_id: String,
         value: f32,
     },
     StatusMessage(String),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BacnetObjectInfo {
+    pub object_type: u16,
+    pub instance: u32,
+    pub name: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

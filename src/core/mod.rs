@@ -7,6 +7,7 @@ use crate::core::bacnet::discovery;
 use tokio::sync::{mpsc, broadcast};
 use anyhow::Result;
 use bacnet_rs::app::Apdu;
+use bacnet_rs::object::{PropertyIdentifier, ObjectIdentifier, ObjectType};
 use std::sync::{Arc, Mutex};
 
 pub struct Core {
@@ -71,6 +72,16 @@ impl Core {
                     self.event_tx.send(Event::StatusMessage(format!("Sent targeted Who-Is to {}", target)))?;
                 }
             }
+            Command::DiscoverObjects { device_id, address } => {
+                if let Some(client_mutex) = &self.bacnet_client {
+                    let mut client = client_mutex.lock().unwrap();
+                    let target_addr: std::net::SocketAddr = address.parse()?;
+                    let dest = bacnet_rs::datalink::DataLinkAddress::Ip(target_addr);
+                    let obj_id = ObjectIdentifier::new(ObjectType::Device, device_id);
+                    client.send_read_property(&dest, obj_id, PropertyIdentifier::ObjectList as u32)?;
+                    self.event_tx.send(Event::StatusMessage(format!("Requested object list from device {}", device_id)))?;
+                }
+            }
             _ => {
                 log::warn!("Command not yet implemented: {:?}", cmd);
             }
@@ -109,10 +120,32 @@ impl Core {
                     Ok(Some((data, src))) => {
                         error_count = 0;
                         if let Ok(apdu) = Apdu::decode(&data) {
-                            if let Ok(Some(mut device)) = discovery::parse_i_am(&apdu) {
-                                device.address = format!("{:?}", src);
-                                log::info!("Discovered device: {:?} from {:?}", device, src);
-                                let _ = event_tx.send(Event::DeviceDiscovered(device));
+                            match apdu {
+                                Apdu::UnconfirmedRequest { .. } => {
+                                    if let Ok(Some(mut device)) = discovery::parse_i_am(&apdu) {
+                                        device.address = format!("{:?}", src);
+                                        log::info!("Discovered device: {:?} from {:?}", device, src);
+                                        let _ = event_tx.send(Event::DeviceDiscovered(device));
+                                    }
+                                }
+                                Apdu::ComplexAck { .. } => {
+                                    if let Ok(Some(resp)) = discovery::parse_read_property_response(&apdu) {
+                                        if resp.property_identifier == PropertyIdentifier::ObjectList as u32 {
+                                            if let Ok(objects) = discovery::parse_object_list(&resp.property_value) {
+                                                log::info!("Discovered {} objects on device {}", objects.len(), resp.object_identifier.instance);
+                                                let _ = event_tx.send(Event::DeviceObjectsDiscovered {
+                                                    device_id: resp.object_identifier.instance,
+                                                    objects: objects.into_iter().map(|id| crate::common::types::BacnetObjectInfo {
+                                                        object_type: id.object_type as u16,
+                                                        instance: id.instance,
+                                                        name: format!("{:?} {}", id.object_type, id.instance),
+                                                    }).collect(),
+                                                });
+                                            }
+                                        }
+                                    }
+                                }
+                                _ => {}
                             }
                         }
                     }

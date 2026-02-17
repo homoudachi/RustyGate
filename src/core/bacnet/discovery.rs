@@ -1,8 +1,10 @@
 use bacnet_rs::{
     app::Apdu,
-    service::{IAmRequest, UnconfirmedServiceChoice},
+    service::{IAmRequest, UnconfirmedServiceChoice, ReadPropertyResponse},
+    object::{ObjectType, PropertyIdentifier, ObjectIdentifier},
+    encoding::{self, ApplicationTag},
 };
-use crate::common::types::BacnetDevice;
+use crate::common::types::{BacnetDevice, BacnetObjectInfo};
 use anyhow::Result;
 
 /// Parses an I-Am response and returns a BacnetDevice if successful.
@@ -20,4 +22,35 @@ pub fn parse_i_am(apdu: &Apdu) -> Result<Option<BacnetDevice>> {
         }
     }
     Ok(None)
+}
+
+pub fn parse_read_property_response(apdu: &Apdu) -> Result<Option<ReadPropertyResponse>> {
+    if let Apdu::ComplexAck { service_choice, service_data, .. } = apdu {
+        if *service_choice == 12 { // ReadProperty
+            let resp = ReadPropertyResponse::decode(service_data)
+                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+            return Ok(Some(resp));
+        }
+    }
+    Ok(None)
+}
+
+pub fn parse_object_list(data: &[u8]) -> Result<Vec<ObjectIdentifier>> {
+    let mut objects = Vec::new();
+    let mut pos = 0;
+    while pos < data.len() {
+        if let Ok(((obj_type, instance), consumed)) = encoding::decode_object_identifier(&data[pos..]) {
+            objects.push(ObjectIdentifier::new(ObjectType::try_from(obj_type).unwrap(), instance));
+            pos += consumed;
+        } else {
+            break;
+        }
+    }
+    Ok(objects)
+}
+
+pub fn parse_character_string(data: &[u8]) -> Result<String> {
+    let (s, _) = encoding::decode_character_string(data)
+        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+    Ok(s)
 }
