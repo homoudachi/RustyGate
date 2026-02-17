@@ -13,6 +13,7 @@ pub enum Command {
         target: String,
     },
     DiscoverObjects {
+        interface: String,
         device_id: u32,
         address: String,
     },

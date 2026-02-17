@@ -10,7 +10,9 @@ RustyGate runs as a single process with two primary components:
 - **Core -> UI**: WebSockets for real-time telemetry and logs.
 
 ## 3. Data Flow
-1.  **Discovery**: UI sends `StartDiscovery` -> Core triggers `Who-Is` via `bacnet-rs` -> Core receives `I-Am` -> Core broadcasts `DeviceDiscovered` -> UI updates device list.
+1.  **Discovery**: 
+    - **Phase 1 (Network)**: UI sends `StartDiscovery` -> Core triggers `Who-Is` via `bacnet-rs` -> Core receives `I-Am` -> Core broadcasts `DeviceDiscovered` -> UI updates device list.
+    - **Phase 2 (Objects)**: Core sends `ReadProperty(ObjectList)` to discovered device -> Receives list of Object Identifiers -> Broadcasts `DeviceObjectsDiscovered`.
 2.  **Polling**: Core periodically reads BACnet properties -> formats as JSON -> publishes to MQTT broker via `rumqttc` -> broadcasts `PointUpdate` to UI for monitoring.
 3.  **Command**: MQTT subscriber or UI sends `WriteProperty` -> Core validates and sends BACnet `WriteProperty` request.
 
@@ -24,5 +26,7 @@ RustyGate runs as a single process with two primary components:
 ## 5. Testing Strategy (Remote Responder)
 - **Tooling**: A dedicated `bacnet-responder` simulator (located in `tests/bacnet-responder`).
 - **Functionality**: Acts as a "Ghost Device" that listens on the network and responds to BACnet services.
+- **Objects**: Simulates multiple standard objects including Analog Input (AI), Binary Input (BI), and Analog Value (AV).
+- **Services**: Supports `Who-Is` (unconfirmed) and `ReadProperty` (confirmed) for object lists and property values.
 - **Orchestration**: Controllable via MQTT on topic `test/ghost/config` to dynamically change its Device ID or object values.
-- **Verification**: Used to verify Gateway discovery (`Who-Is`) and polling without requiring physical hardware.
+- **Verification**: Used to verify Gateway discovery (`Who-Is`), object enumeration, and polling without requiring physical hardware.

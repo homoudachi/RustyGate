@@ -53,6 +53,7 @@ fn main() {
                     let id = device_id.parse().unwrap();
                     println!("Discovering objects on {} ({}) via {}...", id, address, iface);
                     run_core_oneshot(Command::DiscoverObjects { 
+                        interface: iface.clone(),
                         device_id: id,
                         address: address.clone()
                     });

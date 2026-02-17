@@ -72,14 +72,23 @@ impl Core {
                     self.event_tx.send(Event::StatusMessage(format!("Sent targeted Who-Is to {}", target)))?;
                 }
             }
-            Command::DiscoverObjects { device_id, address } => {
+            Command::DiscoverObjects { interface, device_id, address } => {
+                log::info!("Handling DiscoverObjects for device {} at {} via {}", device_id, address, interface);
+                self.bind_interface(&interface).await?;
                 if let Some(client_mutex) = &self.bacnet_client {
                     let mut client = client_mutex.lock().unwrap();
-                    let target_addr: std::net::SocketAddr = address.parse()?;
-                    let dest = bacnet_rs::datalink::DataLinkAddress::Ip(target_addr);
-                    let obj_id = ObjectIdentifier::new(ObjectType::Device, device_id);
-                    client.send_read_property(&dest, obj_id, PropertyIdentifier::ObjectList as u32)?;
-                    self.event_tx.send(Event::StatusMessage(format!("Requested object list from device {}", device_id)))?;
+                    match address.parse::<std::net::SocketAddr>() {
+                        Ok(target_addr) => {
+                            let dest = bacnet_rs::datalink::DataLinkAddress::Ip(target_addr);
+                            let obj_id = ObjectIdentifier::new(ObjectType::Device, device_id);
+                            match client.send_read_property(&dest, obj_id, PropertyIdentifier::ObjectList as u32) {
+                                Ok(id) => log::info!("Sent ReadProperty(ObjectList) to {}, invoke_id={}", address, id),
+                                Err(e) => log::error!("Failed to send ReadProperty: {}", e),
+                            }
+                            self.event_tx.send(Event::StatusMessage(format!("Requested object list from device {}", device_id)))?;
+                        }
+                        Err(e) => log::error!("Failed to parse address {}: {}", address, e),
+                    }
                 }
             }
             _ => {

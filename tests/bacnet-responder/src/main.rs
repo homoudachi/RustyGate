@@ -1,17 +1,16 @@
 use bacnet_rs::{
-    app::{Apdu, MaxApduSize, MaxSegments},
+    app::Apdu,
     datalink::{bip::BacnetIpDataLink, DataLink},
     object::{
         analog::AnalogInput,
         binary::BinaryInput,
         database::ObjectDatabase,
-        Device, ObjectIdentifier, ObjectType, PropertyIdentifier, PropertyValue, BacnetObject,
+        Device, ObjectIdentifier, ObjectType, PropertyIdentifier, PropertyValue,
     },
     service::{IAmRequest, UnconfirmedServiceChoice, WhoIsRequest, ReadPropertyRequest},
     encoding::{
         self,
-        encode_context_object_id, encode_context_enumerated, encode_context_unsigned,
-        ApplicationTag,
+        encode_context_object_id, encode_context_enumerated,
     },
 };
 use rumqttc::{AsyncClient, MqttOptions, QoS, Event as MqttEvent, Packet};
@@ -79,7 +78,7 @@ async fn main() -> anyhow::Result<()> {
     });
 
     // Non-blocking MQTT attempt
-    let mqtt_state = Arc::clone(&state);
+    let _mqtt_state = Arc::clone(&state);
     tokio::spawn(async move {
         let mut mqttoptions = MqttOptions::new(format!("bacnet-ghost-{}", device_id), mqtt_host, 1883);
         mqttoptions.set_keep_alive(Duration::from_secs(5));
