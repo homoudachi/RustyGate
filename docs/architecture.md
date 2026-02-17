@@ -11,10 +11,11 @@ RustyGate runs as a single process with two primary components:
 
 ## 3. Data Flow
 1.  **Discovery**: 
-    - **Phase 1 (Network)**: UI sends `StartDiscovery` -> Core triggers `Who-Is` via `bacnet-rs` -> Core receives `I-Am` -> Core broadcasts `DeviceDiscovered` -> UI updates device list.
-    - **Phase 2 (Objects)**: Core sends `ReadProperty(ObjectList)` to discovered device -> Receives list of Object Identifiers -> Broadcasts `DeviceObjectsDiscovered`.
+    - **Phase 1 (Network)**: UI sends `StartDiscovery` -> Core triggers `Who-Is` via `bacnet-rs` -> Core receives `I-Am` -> Core broadcasts `DeviceDiscovered`.
+    - **Phase 2 (Objects)**: Upon discovering a new device, Core automatically triggers `ReadProperty(ObjectList)` -> Receives list of Object Identifiers -> Broadcasts `DeviceObjectsDiscovered`. This ensures a seamless "one-click" discovery experience in the UI.
 2.  **Polling**: Core periodically reads BACnet properties -> formats as JSON -> publishes to MQTT broker via `rumqttc` -> broadcasts `PointUpdate` to UI for monitoring.
-3.  **Command**: MQTT subscriber or UI sends `WriteProperty` -> Core validates and sends BACnet `WriteProperty` request.
+3.  **Command & Control**:
+    - **Shutdown**: A global atomic flag is used to signal a graceful exit. The BACnet receiver thread uses a socket timeout to periodically check this flag, ensuring the process exits cleanly on `Ctrl+C`.
 
 ## 4. Module Responsibilities
 - `src/main.rs`: Entry point, channel initialization, and thread management.

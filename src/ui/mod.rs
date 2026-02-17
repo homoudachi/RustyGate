@@ -32,7 +32,21 @@ pub async fn launch(cmd_tx: mpsc::Sender<Command>, event_tx: broadcast::Sender<E
             match event {
                 Event::DeviceDiscovered(dev) => {
                     let mut devices = state_clone.discovered_devices.lock().await;
-                    devices.insert(dev.instance, dev);
+                    let is_new = !devices.contains_key(&dev.instance);
+                    devices.insert(dev.instance, dev.clone());
+                    
+                    if is_new {
+                        // Check if we already have objects (to avoid re-scanning)
+                        let objects = state_clone.device_objects.lock().await;
+                        if !objects.contains_key(&dev.instance) {
+                            log::info!("Auto-discovering objects for new device {}", dev.instance);
+                            let _ = state_clone.cmd_tx.send(Command::DiscoverObjects {
+                                interface: "".to_string(),
+                                device_id: dev.instance,
+                                address: dev.address.clone(),
+                            }).await;
+                        }
+                    }
                 }
                 Event::DeviceObjectsDiscovered { device_id, objects } => {
                     let mut all_objects = state_clone.device_objects.lock().await;

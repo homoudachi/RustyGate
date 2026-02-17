@@ -68,6 +68,8 @@ fn main() {
     }
 
     // Standard Launch (Core + Web UI)
+    let with_simulator = args.iter().any(|arg| arg == "--with-simulator");
+    
     let (cmd_tx, cmd_rx) = mpsc::channel::<Command>(100);
     let (event_tx, mut _event_rx) = broadcast::channel(100);
 
@@ -77,11 +79,33 @@ fn main() {
         let cmd_tx_clone = cmd_tx.clone();
         let event_tx_clone = event_tx.clone();
         
+        if with_simulator {
+            log::info!("Starting local BACnet simulator...");
+            tokio::spawn(async move {
+                let status = tokio::process::Command::new("cargo")
+                    .arg("run")
+                    .arg("--quiet")
+                    .arg("--")
+                    .arg("99999")
+                    .arg("localhost")
+                    .arg("lo")
+                    .current_dir("tests/bacnet-responder")
+                    .status()
+                    .await;
+                if let Err(e) = status {
+                    log::error!("Failed to start simulator: {}", e);
+                }
+            });
+            // Give simulator a moment to bind
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        }
+
         tokio::spawn(async move {
             ui::launch(cmd_tx_clone, event_tx_clone).await;
         });
 
         let mut core = Core::new(cmd_rx, core_event_tx);
+        let shutdown_trigger = core.shutdown.clone();
         
         // Spawn core in background
         tokio::spawn(async move {
@@ -93,6 +117,10 @@ fn main() {
         log::info!("RustyGate is running. Press Ctrl+C to stop.");
         let _ = tokio::signal::ctrl_c().await;
         log::info!("Shutting down...");
+        shutdown_trigger.store(true, std::sync::atomic::Ordering::SeqCst);
+        
+        // Give it a moment to stop threads
+        tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
     });
 }
 

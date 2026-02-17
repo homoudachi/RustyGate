@@ -124,7 +124,10 @@ impl Core {
 
         log::info!("Interface {} has IP {}", name, iface.ip);
         
-        let addr = std::net::SocketAddr::new(std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED), 47808);
+        // Prefer specific interface IP, but support 0.0.0.0 if needed
+        let addr = std::net::SocketAddr::new(iface.ip, 47808);
+        log::info!("Attempting to bind to {}", addr);
+        
         let client = BacnetClient::new(addr)?;
         let client_arc = Arc::new(Mutex::new(client));
         self.bacnet_client = Some(Arc::clone(&client_arc));

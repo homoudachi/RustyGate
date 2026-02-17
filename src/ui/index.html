@@ -172,9 +172,29 @@
         async function inspectDevice(id) {
             addLog(`Requesting objects for device ${id}...`);
             objectListEl.innerHTML = '<tr><td colspan="3" class="text-center">Loading...</td></tr>';
-            const res = await fetch(`/api/devices/${id}/objects`);
-            const objects = await res.json();
-            updateObjectList(id, objects);
+            
+            const fetchObjects = async () => {
+                const res = await fetch(`/api/devices/${id}/objects`);
+                const objects = await res.json();
+                if (objects.length > 0) {
+                    updateObjectList(id, objects);
+                    return true;
+                }
+                return false;
+            };
+
+            if (!await fetchObjects()) {
+                objectListEl.innerHTML = '<tr><td colspan="3" class="text-center text-muted">Discovery in progress...</td></tr>';
+                let attempts = 0;
+                const interval = setInterval(async () => {
+                    if (await fetchObjects() || ++attempts > 10) {
+                        clearInterval(interval);
+                        if (attempts > 10 && objectListEl.innerHTML.includes("Discovery in progress")) {
+                            objectListEl.innerHTML = '<tr><td colspan="3" class="text-center text-danger">Discovery timed out</td></tr>';
+                        }
+                    }
+                }, 2000);
+            }
         }
 
         function updateObjectList(deviceId, objects) {
