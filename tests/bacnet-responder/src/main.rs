@@ -146,20 +146,25 @@ async fn main() -> anyhow::Result<()> {
                                                 999,
                                             );
                                             
-                                            let mut iam_data = Vec::new();
-                                            if let Err(e) = iam.encode(&mut iam_data) {
-                                                log::error!("Failed to encode I-Am: {}", e);
-                                                continue;
-                                            }
+                                            let mut apdu_data = vec![0x10, UnconfirmedServiceChoice::IAm as u8];
+                                            iam.encode(&mut apdu_data).map_err(|e| anyhow::anyhow!(e.to_string()))?;
                                             
-                                            let response_apdu = Apdu::UnconfirmedRequest {
-                                                service_choice: UnconfirmedServiceChoice::IAm as u8,
-                                                service_data: iam_data,
-                                            };
+                                            // Manual NPDU: control=0x00 (standard), no destination/source
+                                            let mut npdu = vec![0x01, 0x00];
+                                            let mut full_packet = npdu;
+                                            full_packet.extend_from_slice(&apdu_data);
                                             
-                                            let encoded_response = response_apdu.encode();
-                                            if let Err(e) = datalink.send_frame(&encoded_response, &bacnet_rs::datalink::DataLinkAddress::Broadcast) {
+                                            // Manual BVLC: 0x81, 0x0B (Broadcast), length
+                                            let mut bvlc = vec![0x81, 0x0B, 0x00, 0x00];
+                                            bvlc.extend_from_slice(&full_packet);
+                                            let len = bvlc.len() as u16;
+                                            bvlc[2] = (len >> 8) as u8;
+                                            bvlc[3] = (len & 0xFF) as u8;
+
+                                            if let Err(e) = datalink.send_frame(&bvlc, &bacnet_rs::datalink::DataLinkAddress::Broadcast) {
                                                 log::error!("Failed to send I-Am: {}", e);
+                                            } else {
+                                                log::info!("Sent manual I-Am broadcast ({} bytes)", bvlc.len());
                                             }
                                         }
                                     }
