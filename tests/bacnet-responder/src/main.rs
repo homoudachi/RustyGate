@@ -113,7 +113,7 @@ async fn main() -> anyhow::Result<()> {
                                     };
                                     
                                     let encoded_response = response_apdu.encode();
-                                    if let Err(e) = datalink.send_frame(&encoded_response, &DataLinkAddress::Broadcast) {
+                                    if let Err(e) = datalink.send_frame(&encoded_response, &src_addr) {
                                         log::error!("Failed to send I-Am: {}", e);
                                     }
                                 }
